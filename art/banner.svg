@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">EnvLens</title>
+  <desc id="desc">EnvLens: inspect, compare, audit and safely maintain the .env files of a Laravel application. A magnifying lens over an .env file shows each key as set or missing, with sensitive values masked.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="0.55" stop-color="#121a33"/>
+      <stop offset="1" stop-color="#1b1440"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.78" cy="0.5" r="0.45">
+      <stop offset="0" stop-color="#f43f5e" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#f43f5e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fda4af"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fb7185"/>
+      <stop offset="1" stop-color="#e11d48"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.02"/>
+    </radialGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#ffffff" fill-opacity="0.05"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <clipPath id="lens-clip">
+      <circle cx="1130" cy="390" r="100"/>
+    </clipPath>
+
+    <!-- The .env rows, drawn once and reused magnified inside the lens. -->
+    <g id="rows" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="19">
+      <g transform="translate(724 214)">
+        <text x="0" y="0" fill="#64748b"># Application</text>
+      </g>
+      <g transform="translate(724 258)">
+        <text x="0" y="0"><tspan fill="#7dd3fc">APP_NAME</tspan><tspan fill="#94a3b8">=</tspan><tspan fill="#e2e8f0">Laravel</tspan></text>
+        <text x="372" y="0" fill="#4ade80">✔</text>
+        <rect x="398" y="-17" width="62" height="24" rx="12" fill="#22c55e" fill-opacity="0.16"/>
+        <text x="429" y="0" text-anchor="middle" font-size="14" fill="#4ade80">used</text>
+      </g>
+      <g transform="translate(724 302)">
+        <text x="0" y="0"><tspan fill="#7dd3fc">APP_KEY</tspan><tspan fill="#94a3b8">=</tspan><tspan fill="#e2e8f0">ba••••</tspan></text>
+        <text x="372" y="0" fill="#4ade80">✔</text>
+        <rect x="398" y="-17" width="62" height="24" rx="12" fill="#22c55e" fill-opacity="0.16"/>
+        <text x="429" y="0" text-anchor="middle" font-size="14" fill="#4ade80">used</text>
+      </g>
+      <g transform="translate(724 346)">
+        <text x="0" y="0"><tspan fill="#7dd3fc">STRIPE_SECRET</tspan><tspan fill="#94a3b8">=</tspan><tspan fill="#e2e8f0">sk••••</tspan></text>
+        <text x="372" y="0" fill="#4ade80">✔</text>
+        <rect x="398" y="-17" width="62" height="24" rx="12" fill="#22c55e" fill-opacity="0.16"/>
+        <text x="429" y="0" text-anchor="middle" font-size="14" fill="#4ade80">used</text>
+      </g>
+      <g transform="translate(724 390)">
+        <text x="0" y="0"><tspan fill="#7dd3fc">WEBHOOK_SECRET</tspan><tspan fill="#94a3b8">=</tspan></text>
+        <text x="372" y="0" fill="#f87171">✘</text>
+        <rect x="398" y="-17" width="62" height="24" rx="12" fill="#ef4444" fill-opacity="0.18"/>
+        <text x="429" y="0" text-anchor="middle" font-size="13" fill="#f87171">missing</text>
+      </g>
+      <g transform="translate(724 434)">
+        <text x="0" y="0"><tspan fill="#7dd3fc">ORPHAN_FLAG</tspan><tspan fill="#94a3b8">=</tspan><tspan fill="#e2e8f0">true</tspan></text>
+        <text x="372" y="0" fill="#4ade80">✔</text>
+        <rect x="398" y="-17" width="62" height="24" rx="12" fill="#eab308" fill-opacity="0.18"/>
+        <text x="429" y="0" text-anchor="middle" font-size="13" fill="#facc15">unused</text>
+      </g>
+      <g transform="translate(724 478)">
+        <text x="0" y="0"><tspan fill="#7dd3fc">LOG_LEVEL</tspan><tspan fill="#94a3b8">=</tspan><tspan fill="#e2e8f0">debug</tspan></text>
+        <text x="372" y="0" fill="#4ade80">✔</text>
+        <rect x="398" y="-17" width="62" height="24" rx="12" fill="#22c55e" fill-opacity="0.16"/>
+        <text x="429" y="0" text-anchor="middle" font-size="14" fill="#4ade80">used</text>
+      </g>
+    </g>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#dots)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+
+  <!-- Left: name, tagline, commands -->
+  <g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Inter, Helvetica, Arial, sans-serif">
+    <g transform="translate(88 150)">
+      <rect x="0" y="0" width="182" height="34" rx="17" fill="#f43f5e" fill-opacity="0.14" stroke="#f43f5e" stroke-opacity="0.45"/>
+      <text x="91" y="23" text-anchor="middle" font-size="15" font-weight="600" letter-spacing="1.5" fill="#fda4af">LARAVEL PACKAGE</text>
+    </g>
+
+    <text x="84" y="282" font-size="104" font-weight="800" letter-spacing="-3" fill="url(#title-grad)">EnvLens</text>
+
+    <text x="88" y="336" font-size="27" fill="#cbd5e1">See what your <tspan fill="#ffffff" font-weight="700">.env</tspan> is really doing.</text>
+    <text x="88" y="374" font-size="20" fill="#94a3b8">Inspect, compare, audit and safely sync env files.</text>
+    <text x="88" y="402" font-size="20" fill="#94a3b8">Secrets stay masked. Writes stay lossless.</text>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="15">
+    <g transform="translate(88 448)">
+      <rect width="104" height="34" rx="8" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="52" y="22" text-anchor="middle" fill="#e2e8f0">env:keys</text>
+      <rect x="114" width="126" height="34" rx="8" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="177" y="22" text-anchor="middle" fill="#e2e8f0">env:compare</text>
+      <rect x="250" width="108" height="34" rx="8" fill="#f43f5e" fill-opacity="0.16" stroke="#f43f5e" stroke-opacity="0.5"/>
+      <text x="304" y="22" text-anchor="middle" fill="#fecdd3">env:audit</text>
+      <rect x="368" width="126" height="34" rx="8" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="431" y="22" text-anchor="middle" fill="#e2e8f0">env:explain</text>
+    </g>
+    <g transform="translate(88 492)">
+      <rect width="134" height="34" rx="8" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="67" y="22" text-anchor="middle" fill="#e2e8f0">env:generate</text>
+      <rect x="144" width="96" height="34" rx="8" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="192" y="22" text-anchor="middle" fill="#e2e8f0">env:sync</text>
+      <rect x="250" width="122" height="34" rx="8" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="311" y="22" text-anchor="middle" fill="#e2e8f0">env:cleanup</text>
+    </g>
+    <text x="88" y="566" font-size="15" fill="#64748b">Laravel 12 · 13   ·   PHP 8.2 – 8.5   ·   composer require --dev touhidurabir/envlens</text>
+  </g>
+
+  <!-- Right: the .env file card -->
+  <g filter="url(#shadow)">
+    <rect x="696" y="148" width="500" height="372" rx="18" fill="#0f172a" stroke="#ffffff" stroke-opacity="0.10"/>
+  </g>
+  <rect x="696" y="148" width="500" height="40" rx="18" fill="#ffffff" fill-opacity="0.04"/>
+  <rect x="696" y="170" width="500" height="18" fill="#0f172a"/>
+  <rect x="696" y="188" width="500" height="1" fill="#ffffff" fill-opacity="0.08"/>
+  <circle cx="722" cy="168" r="6" fill="#ef4444" fill-opacity="0.85"/>
+  <circle cx="742" cy="168" r="6" fill="#eab308" fill-opacity="0.85"/>
+  <circle cx="762" cy="168" r="6" fill="#22c55e" fill-opacity="0.85"/>
+  <text x="946" y="174" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#94a3b8">.env</text>
+
+  <use href="#rows" xlink:href="#rows"/>
+
+  <!-- The lens: a magnified copy of the rows, clipped to the glass -->
+  <g clip-path="url(#lens-clip)">
+    <rect x="1024" y="284" width="212" height="212" fill="#111a33"/>
+    <use href="#rows" xlink:href="#rows" transform="translate(1130 390) scale(1.6) translate(-1130 -390)"/>
+    <circle cx="1130" cy="390" r="100" fill="url(#glass)"/>
+  </g>
+  <line x1="1202" y1="462" x2="1252" y2="512" stroke="#9f1239" stroke-width="30" stroke-linecap="round"/>
+  <line x1="1202" y1="462" x2="1252" y2="512" stroke="url(#ring)" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="1130" cy="390" r="100" fill="none" stroke="url(#ring)" stroke-width="13"/>
+  <circle cx="1130" cy="390" r="92" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+  <path d="M 1066 340 A 76 76 0 0 1 1110 312" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="5" stroke-linecap="round"/>
+</svg>
