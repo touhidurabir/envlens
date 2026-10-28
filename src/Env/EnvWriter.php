@@ -44,6 +44,7 @@ final class EnvWriter
     /**
      * Returns the backup path, or null when no backup was made.
      *
+     * Paths are joined with `/`, which PHP accepts on every OS, so returned paths read the same everywhere.
      * Backups go to $backupDir, or else to the `backup_path` option (default
      * `storage/envlens/backups`) resolved against the directory of $path. The directory is
      * created private (0700) with a `.gitignore` that ignores everything in it. A backup is
@@ -64,7 +65,7 @@ final class EnvWriter
         }
 
         $contents = $file->toString();
-        $temp = $dir.DIRECTORY_SEPARATOR.'.envlens-'.bin2hex(random_bytes(6)).'.tmp';
+        $temp = $dir.'/.envlens-'.bin2hex(random_bytes(6)).'.tmp';
         $backup = null;
 
         try {
@@ -81,7 +82,18 @@ final class EnvWriter
                 $this->createRestricted($backup, $mode, $existing, "backup [{$backup}]");
             }
 
+            // Windows cannot replace a file flagged read-only; clear the flag first. The new file
+            // already carries the original mode, so the flag is back once it is in place.
+            $readOnly = PHP_OS_FAMILY === 'Windows' && $exists && ! is_writable($target);
+            if ($readOnly) {
+                @chmod($target, 0666);
+            }
+
             if (! @rename($temp, $target)) {
+                if ($readOnly) {
+                    @chmod($target, $mode);
+                }
+
                 throw new RuntimeException("envlens: could not replace [{$path}].");
             }
         } finally {
@@ -100,13 +112,13 @@ final class EnvWriter
             $configured = is_string($configured) && $configured !== '' ? $configured : 'storage/envlens/backups';
             $isAbsolute = str_starts_with($configured, '/') || str_starts_with($configured, '\\')
                 || preg_match('#^[A-Za-z]:[\\\\/]#', $configured) === 1;
-            $backupDir = $isAbsolute ? $configured : dirname($path).DIRECTORY_SEPARATOR.$configured;
+            $backupDir = $isAbsolute ? $configured : dirname($path).'/'.$configured;
         }
 
         $backupDir = rtrim($backupDir, '/\\');
         $this->ensureBackupDir($backupDir);
 
-        $base = $backupDir.DIRECTORY_SEPARATOR.basename($path).'.'.now()->format('YmdHis');
+        $base = $backupDir.'/'.basename($path).'.'.now()->format('YmdHis');
         $candidate = $base;
 
         for ($n = 1; file_exists($candidate); $n++) {
@@ -126,7 +138,7 @@ final class EnvWriter
             @chmod($dir, 0700);
         }
 
-        $ignore = $dir.DIRECTORY_SEPARATOR.'.gitignore';
+        $ignore = $dir.'/.gitignore';
 
         if (! is_file($ignore) && @file_put_contents($ignore, "*\n!.gitignore\n") === false) {
             throw new RuntimeException("envlens: could not write [{$ignore}].");

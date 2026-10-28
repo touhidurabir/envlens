@@ -99,8 +99,11 @@ it('writes atomically with a backup', function (): void {
     expect($backup)->toBe("$dir/storage/envlens/backups/.env.20261027000000")
         ->and(file_get_contents($backup))->toBe("OLD=1\n")
         ->and(file_get_contents("$dir/.env"))->toBe("NEW=2\n")
-        ->and(file_get_contents("$dir/storage/envlens/backups/.gitignore"))->toBe("*\n!.gitignore\n")
-        ->and(fileperms("$dir/storage/envlens/backups") & 0777)->toBe(0700);
+        ->and(file_get_contents("$dir/storage/envlens/backups/.gitignore"))->toBe("*\n!.gitignore\n");
+
+    if (posixPermissions()) {
+        expect(fileperms("$dir/storage/envlens/backups") & 0777)->toBe(0700);
+    }
 
     (new Filesystem)->deleteDirectory($dir);
 });
@@ -139,6 +142,10 @@ it('omits the leading blank line when the file already ends blank', function ():
 });
 
 it('preserves file permissions on the target and the backup', function (): void {
+    if (! posixPermissions()) {
+        $this->markTestSkipped('No POSIX file modes on Windows.');
+    }
+
     $dir = sys_get_temp_dir().'/envlens-w-'.uniqid();
     mkdir($dir);
     file_put_contents("$dir/.env", "OLD=1\n");
@@ -157,6 +164,9 @@ it('preserves file permissions on the target and the backup', function (): void 
 it('throws and leaves the original untouched when the directory is read-only', function (): void {
     if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
         $this->markTestSkipped('Running as root.');
+    }
+    if (! posixPermissions()) {
+        $this->markTestSkipped('Windows has no read-only directories.');
     }
 
     $dir = sys_get_temp_dir().'/envlens-w-'.uniqid();
@@ -202,10 +212,16 @@ it('can write a read-only target and keeps its mode', function (): void {
     $backup = writer()->write("$dir/.env", EnvFile::fromString("NEW=2\n"));
     clearstatcache();
 
+    // Windows maps any mode without a write bit to its read-only flag, reported as 0444.
+    $readOnly = posixPermissions() ? 0400 : 0444;
+
     expect(file_get_contents("$dir/.env"))->toBe("NEW=2\n")
-        ->and(fileperms("$dir/.env") & 0777)->toBe(0400)
-        ->and(fileperms($backup) & 0777)->toBe(0400)
+        ->and(fileperms("$dir/.env") & 0777)->toBe($readOnly)
+        ->and(fileperms($backup) & 0777)->toBe($readOnly)
         ->and(file_get_contents($backup))->toBe("OLD=1\n");
+
+    chmod("$dir/.env", 0644);
+    chmod($backup, 0644);
 
     (new Filesystem)->deleteDirectory($dir);
 });
@@ -246,8 +262,8 @@ it('never overwrites a backup made in the same second', function (): void {
         ->and(file_get_contents($first))->toBe("V=1\n")
         ->and(file_get_contents($second))->toBe("V=2\n")
         ->and(file_get_contents($third))->toBe("V=3\n")
-        ->and(fileperms($second) & 0777)->toBe(0640)
-        ->and(fileperms("$dir/.env") & 0777)->toBe(0640);
+        ->and(fileperms($second) & 0777)->toBe(posixPermissions() ? 0640 : 0666)
+        ->and(fileperms("$dir/.env") & 0777)->toBe(posixPermissions() ? 0640 : 0666);
 
     (new Filesystem)->deleteDirectory($dir);
 });

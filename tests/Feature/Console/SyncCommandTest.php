@@ -162,6 +162,9 @@ it('exits 1 with the writer message when the write fails', function () {
     if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
         $this->markTestSkipped('Running as root.');
     }
+    if (! posixPermissions()) {
+        $this->markTestSkipped('Windows has no read-only directories.');
+    }
 
     $path = syncProject();
     chmod($path, 0555);

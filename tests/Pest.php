@@ -97,3 +97,9 @@ afterEach(function (): void {
 
     $GLOBALS['envLensTempDirs'] = [];
 });
+
+/** False on Windows, which has no POSIX file modes (only a read-only flag) and no read-only directories. */
+function posixPermissions(): bool
+{
+    return PHP_OS_FAMILY !== 'Windows';
+}

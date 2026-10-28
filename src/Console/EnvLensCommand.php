@@ -111,12 +111,18 @@ abstract class EnvLensCommand extends Command
         return $path === $live || (realpath($path) !== false && realpath($path) === realpath($live));
     }
 
-    /** $path relative to the project base path when it is inside it. */
+    /** $path relative to the project base path when it is inside it, with `/` separators on every OS. */
     protected function relativePath(string $path): string
     {
-        $base = $this->basePath().DIRECTORY_SEPARATOR;
+        $base = $this->basePath();
 
-        return str_starts_with($path, $base) ? substr($path, strlen($base)) : $path;
+        $rest = substr($path, strlen($base));
+
+        if (! str_starts_with($path, $base) || ! in_array($rest[0] ?? '', ['/', '\\'], true)) {
+            return $path;
+        }
+
+        return str_replace('\\', '/', ltrim($rest, '/\\'));
     }
 
     /** Backup directory (envlens.write.backup_path) resolved against the project base path. */
@@ -193,6 +199,6 @@ abstract class EnvLensCommand extends Command
     {
         $isAbsolute = str_starts_with($relative, '/') || preg_match('#^[A-Za-z]:[\\\\/]#', $relative) === 1;
 
-        return $isAbsolute ? $relative : $this->basePath().DIRECTORY_SEPARATOR.$relative;
+        return $isAbsolute ? $relative : $this->basePath().'/'.$relative;
     }
 }
