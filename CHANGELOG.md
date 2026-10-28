@@ -6,6 +6,8 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-28
+
 ### Added
 - Seven commands: `env:keys`, `env:compare`, `env:audit`, `env:explain`, `env:generate`, `env:sync` and
   `env:cleanup`. They share one look: a header line, a table, a legend where codes need explaining and a summary,
@@ -47,3 +49,6 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
 - JSON output (`"schema": 1`) on the read-only commands, including summaries, finding `detail` / `hint`, key
   `status` / `resolves` and suggestions.
 - `EnvLens` facade for using the scanning, analysis and mutation services programmatically.
+
+[Unreleased]: https://github.com/touhidurabir/envlens/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/touhidurabir/envlens/releases/tag/v1.0.0
