@@ -44,7 +44,7 @@ Other changes:
 - **Production guard:** `./.env` and `app/../.env` when the file didn't exist yet, and `.ENV`, got past the guard on the app's
   env file. It also read `APP_ENV` only from `.env` rather than `files.source`, and an empty `production_environments`
   counted everything as production.
-- **Scanner:** in Blade, `env()` in a comment or in plain text was reported, and `\\env('X')`, `env ('X')` and runtime-built keys
+- **Scanner:** in Blade, `env()` in a comment or in plain text was reported, and `\env('X')`, `env ('X')` and runtime-built keys
   were missed. `env('X') ?? 'y'` and `env('X') ?: 'y'` now count as having a default. A float default such as `1.0` stays a float.
   Keys read through `getenv()`, `$_ENV` or `$_SERVER` count as used, so cleanup no longer removes them.
 - **Parsing:** a byte order mark, keys starting with a digit and a key with no equals sign are accepted, as in phpdotenv.

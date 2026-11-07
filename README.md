@@ -511,9 +511,9 @@ reports the [required](#required-keys) ones that are missing. **Inferred checks 
 certificate instead of a boolean, and a wrong guess shouldn't block a deploy. Pass `--strict` to fail on them anyway.
 
 ```
-  Validating .env · 42 inferred · environment: local
+  Validating .env · 31 inferred · environment: local
 
-   WARN  1 of 42 checks failed (exit 0)
+   WARN  1 of 31 checks failed (exit 0)
 
 +---------+-----------+----------+-------------+-----------------------------------+
 | Key     | Sensitive | Source   | Failed rule | Message                           |
@@ -523,7 +523,7 @@ certificate instead of a boolean, and a wrong guess shouldn't block a deploy. Pa
 +---------+-----------+----------+-------------+-----------------------------------+
 
   Summary ....................................................................
-  Checked ................................................................. 42
+  Checked ................................................................. 31
   Failed: rules / inferred ............................................. 0 / 1
 
   Inferred checks are guesses from config defaults, so they warn. Use --strict to fail on them.
