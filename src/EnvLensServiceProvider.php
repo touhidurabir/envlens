@@ -25,6 +25,7 @@ use Touhidurabir\EnvLens\Scanning\UsageScanner;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 use Touhidurabir\EnvLens\Support\ProductionGuard;
 use Touhidurabir\EnvLens\Validation\EnvValidator;
+use Touhidurabir\EnvLens\Validation\RuleInferrer;
 
 class EnvLensServiceProvider extends ServiceProvider
 {
@@ -73,6 +74,10 @@ class EnvLensServiceProvider extends ServiceProvider
             $app->make(SensitivityDetector::class),
             $app->make(Factory::class),
         ));
+        $this->app->singleton(RuleInferrer::class, fn (Application $app): RuleInferrer => new RuleInferrer(
+            $app->make(EnvAnalyzer::class),
+            $app->make(SensitivityDetector::class),
+        ));
         $this->app->singleton(EnvLens::class, fn (Application $app): EnvLens => new EnvLens(
             $app->make(UsageScanner::class),
             $app->make(SensitivityDetector::class),
@@ -82,6 +87,7 @@ class EnvLensServiceProvider extends ServiceProvider
             $app->make(EnvGenerator::class),
             $app->make(EnvSynchronizer::class),
             $app->make(EnvValidator::class),
+            $app->make(RuleInferrer::class),
         ));
     }
 
