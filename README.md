@@ -9,6 +9,28 @@
 
 Inspect, compare, audit and safely maintain the `.env` files of a Laravel application.
 
+## Contents
+
+- [Why](#why)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+  - [`env:keys`](#envkeys)
+  - [`env:compare`](#envcompare)
+  - [`env:audit`](#envaudit)
+  - [`env:explain`](#envexplain)
+  - [`env:generate`](#envgenerate)
+  - [`env:sync`](#envsync)
+  - [`env:cleanup`](#envcleanup)
+- [CI setup](#ci-setup)
+- [Configuration](#configuration)
+  - [Required keys](#required-keys)
+- [Safety model](#safety-model)
+- [Using the services programmatically](#using-the-services-programmatically)
+- [Output in AI coding agents](#output-in-ai-coding-agents)
+- [Testing](#testing)
+- [License](#license)
+
 ## Why
 
 `.env` files drift. Keys get added in one environment and forgotten in `.env.example`, old keys linger after the
@@ -33,54 +55,15 @@ php artisan vendor:publish --provider="Touhidurabir\EnvLens\EnvLensServiceProvid
 
 Install it as a regular dependency instead if you want to run the commands in production-like environments.
 
-## Configuration
+## Quick start
 
-`config/envlens.php`:
+```bash
+php artisan env:keys              # what is in .env and who reads each key
+php artisan env:audit             # what is wrong, most important first
+php artisan env:explain DB_HOST   # everything about one key
+```
 
-| Key | Default | Meaning |
-|---|---|---|
-| `files.source` | `.env` | Default "real" env file for every command (`source` argument, `--file`, `--source`). |
-| `files.example` | `.env.example` | Default example file for every command (`target` argument, `--example`). |
-| `required` | `[]` | Globs of keys you declare required, in addition to the keys listed in the example file (see [Required keys](#required-keys)). |
-| `sensitive.keys` | `['APP_KEY']` | Exact key names treated as sensitive. |
-| `sensitive.patterns` | `*_KEY`, `*_SECRET`, `*_SECRET_*`, `*_PASSWORD`, `*_PASS`, `*_TOKEN`, `*_PRIVATE*`, `*_DSN`, `*_CREDENTIALS*`, `*_SALT`, `*_PASSPHRASE`, `*_PWD`, `*_AUTH`, `*_WEBHOOK*` | Case-insensitive globs for sensitive keys. A value that is a connection string with credentials (`scheme://user:password@host`) also makes its key sensitive. |
-| `sensitive.except` | `*_PUBLIC_KEY`, `VITE_*_KEY` | Globs exempted from the patterns above. |
-| `scan.config_paths` | `['config']` | Config directories to scan, relative to the project base path or absolute. |
-| `scan.code_paths` | `app`, `routes`, `database`, `resources/views`, `bootstrap` | Code directories scanned for `env()` calls, relative or absolute. |
-| `scan.exclude` | `vendor`, `storage`, `node_modules`, `bootstrap/cache` | Paths skipped while scanning. |
-| `scan.allow_env_outside_config` | `[]` | Globs of relative file paths that may call `env()` without being flagged. |
-| `cleanup.keep` | `VITE_*`, `SAIL_*`, `WWWUSER`, `WWWGROUP`, `FORWARD_*`, `PHP_CLI_SERVER_WORKERS`, `APP_RUNNING_IN_CONSOLE`, `APP_*_CACHE`, `APP_BASE_PATH`, `LARAVEL_*` | Globs of keys that `env:cleanup` never removes (read by Laravel internals outside config). |
-| `write.backup` | `true` | Back up a file before modifying it (see [Safety model](#safety-model)). |
-| `write.backup_path` | `storage/envlens/backups` | Backup directory, relative to the project base path or absolute. |
-| `write.group_by_prefix` | `true` | Insert new keys after the last key sharing their prefix (`MAIL_*` next to `MAIL_*`); otherwise append at the end. |
-| `write.header_comment` | `true` | Put a `# Added by envlens ...` comment above appended keys. |
-| `write.remove_attached_comments` | `true` | When removing a key, also remove the comment lines directly above it (no blank line between). |
-| `generate.skip_defaults` | `APP_ENV`, `APP_DEBUG` | Keys that `env:generate` and `env:sync` never fill with a config default (so an example never says `APP_ENV=production`). |
-| `production_environments` | `['production']` | Environment names treated as production by the guard. |
-
-All commands accept `--path=` to point at another project base path; file arguments resolve relative to it.
-Exit codes: `0` ok, `1` problems found (`--strict`, `--fail-on`, an unknown key in `env:explain`) or an action was
-refused or declined, `2` usage error (missing file, bad option). Read-only commands accept `--json`; every payload has a top-level `"schema": 1`
-(removing or renaming a field bumps it, and the change is recorded in the CHANGELOG).
-
-Laravel's own unpublished config (`vendor/laravel/framework/config`) is always scanned, so keys such as
-`BCRYPT_ROUNDS` that only the framework reads count as used. The scan is only used for that: keys read solely by
-the framework are not listed by `env:keys` or reported as missing by `env:audit`.
-`--vendor` (on `keys`, `compare`, `audit`, `explain`, `cleanup`) reports framework usages in full and also scans
-the config of every other vendor package. Vendor usages never make a key required.
-
-### Required keys
-
-Laravel's config files use `env('X')` with no default to mean "optional", so EnvLens does not treat every such
-key as required. A key is **required** only when all of these hold:
-
-1. at least one of your `config/` files reads it with no default (or a `null` default),
-2. no usage anywhere gives it a default, and
-3. your team declared it: it is listed in the example file (`.env.example`) or matches a glob in `required`.
-
-A required key that is absent is a `missing-required` error. Without the declaration it is optional, and an
-absent optional key is only a `missing-optional` info finding. A key read only from application code is also
-optional.
+To check your env setup on every pull request, see [CI setup](#ci-setup).
 
 ## Commands
 
@@ -485,7 +468,7 @@ warning with the count. `--unused` lists under Kept only keys saved by a runtime
 (read keys are never candidates there). A removal ends with `DONE Removed N keys from <file>.`, the backup path
 relative to the project, and `git diff <file>` unless the file is your own `.env`.
 
-## CI usage
+## CI setup
 
 `env:audit --fail-on=error` is the primary check. It fails the build on `missing-required`, `env-outside-config`
 and `syntax` findings, and reports `example-drift`, `empty-value` and `duplicate-key` as warnings (use
@@ -521,6 +504,77 @@ jobs:
 
 Use `--json` for machine-readable output.
 
+## Configuration
+
+`config/envlens.php`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `files.source` | `.env` | Default "real" env file for every command (`source` argument, `--file`, `--source`). |
+| `files.example` | `.env.example` | Default example file for every command (`target` argument, `--example`). |
+| `required` | `[]` | Globs of keys you declare required, in addition to the keys listed in the example file (see [Required keys](#required-keys)). |
+| `sensitive.keys` | `['APP_KEY']` | Exact key names treated as sensitive. |
+| `sensitive.patterns` | `*_KEY`, `*_SECRET`, `*_SECRET_*`, `*_PASSWORD`, `*_PASS`, `*_TOKEN`, `*_PRIVATE*`, `*_DSN`, `*_CREDENTIALS*`, `*_SALT`, `*_PASSPHRASE`, `*_PWD`, `*_AUTH`, `*_WEBHOOK*` | Case-insensitive globs for sensitive keys. A value that is a connection string with credentials (`scheme://user:password@host`) also makes its key sensitive. |
+| `sensitive.except` | `*_PUBLIC_KEY`, `VITE_*_KEY` | Globs exempted from the patterns above. |
+| `scan.config_paths` | `['config']` | Config directories to scan, relative to the project base path or absolute. |
+| `scan.code_paths` | `app`, `routes`, `database`, `resources/views`, `bootstrap` | Code directories scanned for `env()` calls, relative or absolute. |
+| `scan.exclude` | `vendor`, `storage`, `node_modules`, `bootstrap/cache` | Paths skipped while scanning. |
+| `scan.allow_env_outside_config` | `[]` | Globs of relative file paths that may call `env()` without being flagged. |
+| `cleanup.keep` | `VITE_*`, `SAIL_*`, `WWWUSER`, `WWWGROUP`, `FORWARD_*`, `PHP_CLI_SERVER_WORKERS`, `APP_RUNNING_IN_CONSOLE`, `APP_*_CACHE`, `APP_BASE_PATH`, `LARAVEL_*` | Globs of keys that `env:cleanup` never removes (read by Laravel internals outside config). |
+| `write.backup` | `true` | Back up a file before modifying it (see [Safety model](#safety-model)). |
+| `write.backup_path` | `storage/envlens/backups` | Backup directory, relative to the project base path or absolute. |
+| `write.group_by_prefix` | `true` | Insert new keys after the last key sharing their prefix (`MAIL_*` next to `MAIL_*`); otherwise append at the end. |
+| `write.header_comment` | `true` | Put a `# Added by envlens ...` comment above appended keys. |
+| `write.remove_attached_comments` | `true` | When removing a key, also remove the comment lines directly above it (no blank line between). |
+| `generate.skip_defaults` | `APP_ENV`, `APP_DEBUG` | Keys that `env:generate` and `env:sync` never fill with a config default (so an example never says `APP_ENV=production`). |
+| `production_environments` | `['production']` | Environment names treated as production by the guard. |
+
+All commands accept `--path=` to point at another project base path; file arguments resolve relative to it.
+Exit codes: `0` ok, `1` problems found (`--strict`, `--fail-on`, an unknown key in `env:explain`) or an action was
+refused or declined, `2` usage error (missing file, bad option). Read-only commands accept `--json`; every payload has a top-level `"schema": 1`
+(removing or renaming a field bumps it, and the change is recorded in the CHANGELOG).
+
+Laravel's own unpublished config (`vendor/laravel/framework/config`) is always scanned, so keys such as
+`BCRYPT_ROUNDS` that only the framework reads count as used. The scan is only used for that: keys read solely by
+the framework are not listed by `env:keys` or reported as missing by `env:audit`.
+`--vendor` (on `keys`, `compare`, `audit`, `explain`, `cleanup`) reports framework usages in full and also scans
+the config of every other vendor package. Vendor usages never make a key required.
+
+### Required keys
+
+Laravel's config files use `env('X')` with no default to mean "optional", so EnvLens does not treat every such
+key as required. A key is **required** only when all of these hold:
+
+1. at least one of your `config/` files reads it with no default (or a `null` default),
+2. no usage anywhere gives it a default, and
+3. your team declared it: it is listed in the example file (`.env.example`) or matches a glob in `required`.
+
+A required key that is absent is a `missing-required` error. Without the declaration it is optional, and an
+absent optional key is only a `missing-optional` info finding. A key read only from application code is also
+optional.
+
+## Safety model
+
+- **Masking.** Values are masked by default: the first two characters then `••••`, or just `••••` for values of
+  four characters or fewer; empty values show as `(empty)`. `--reveal` shows non-sensitive values only;
+  sensitive values (including connection strings with credentials) are never printed or copied.
+- **Production guard.** It trips if the running app's environment **or** the target project's `.env` `APP_ENV` is
+  listed in `production_environments`. In production `--reveal` and `--with-values` are refused, and write commands
+  (`sync`, `cleanup`, `generate`) refuse without `--force`; even with `--force` no values are copied and the app's
+  own env file (`files.source`) is never written. `--dry-run` always works.
+- **The app's own `.env` is protected everywhere.** `env:generate` never overwrites it (a generated file has no real
+  values), `env:cleanup` never removes a key that config or code reads, and the hints of `env:sync` never suggest
+  deleting keys from it.
+- **Values you would lose are shown first.** `env:cleanup` marks keys whose removal loses a value, and
+  `env:generate` lists what overwriting an existing file throws away before asking.
+- **Lossless writes.** Files are parsed into lines and untouched lines are re-emitted byte for byte (comments,
+  quoting, `export` prefixes, multi-line values, CRLF). File mode and symlinks are preserved.
+- **Backups.** Before modifying a file EnvLens copies it to `storage/envlens/backups/<file>.YmdHis` (a `-N`
+  suffix is added if that name is taken), keeping the file's mode. The directory (`write.backup_path`) is created
+  `0700` with its own `.gitignore` (`*` and `!.gitignore`), so backups are never committed. Turn backups off with
+  `write.backup`.
+- **Write failures.** If a write fails, the command prints the reason and exits 1; the original file is untouched.
+
 ## Using the services programmatically
 
 ```php
@@ -547,28 +601,6 @@ $keys = EnvLens::analyzer()->keys($env, $index);                // KeyReport: ro
 $explanation = EnvLens::analyzer()->explain('DB_HOST', ['.env' => $env, '.env.example' => $example], $index, $example);
 // Explanation: status, resolves (value|empty|default|null), usages, overridden, findings, suggestions
 ```
-
-## Safety model
-
-- **Masking.** Values are masked by default: the first two characters then `••••`, or just `••••` for values of
-  four characters or fewer; empty values show as `(empty)`. `--reveal` shows non-sensitive values only;
-  sensitive values (including connection strings with credentials) are never printed or copied.
-- **Production guard.** It trips if the running app's environment **or** the target project's `.env` `APP_ENV` is
-  listed in `production_environments`. In production `--reveal` and `--with-values` are refused, and write commands
-  (`sync`, `cleanup`, `generate`) refuse without `--force`; even with `--force` no values are copied and the app's
-  own env file (`files.source`) is never written. `--dry-run` always works.
-- **The app's own `.env` is protected everywhere.** `env:generate` never overwrites it (a generated file has no real
-  values), `env:cleanup` never removes a key that config or code reads, and the hints of `env:sync` never suggest
-  deleting keys from it.
-- **Values you would lose are shown first.** `env:cleanup` marks keys whose removal loses a value, and
-  `env:generate` lists what overwriting an existing file throws away before asking.
-- **Lossless writes.** Files are parsed into lines and untouched lines are re-emitted byte for byte (comments,
-  quoting, `export` prefixes, multi-line values, CRLF). File mode and symlinks are preserved.
-- **Backups.** Before modifying a file EnvLens copies it to `storage/envlens/backups/<file>.YmdHis` (a `-N`
-  suffix is added if that name is taken), keeping the file's mode. The directory (`write.backup_path`) is created
-  `0700` with its own `.gitignore` (`*` and `!.gitignore`), so backups are never committed. Turn backups off with
-  `write.backup`.
-- **Write failures.** If a write fails, the command prints the reason and exits 1; the original file is untouched.
 
 ## Output in AI coding agents
 

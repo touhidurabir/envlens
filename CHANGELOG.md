@@ -50,5 +50,5 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
   `status` / `resolves` and suggestions.
 - `EnvLens` facade for using the scanning, analysis and mutation services programmatically.
 
-[Unreleased]: https://github.com/touhidurabir/envlens/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/touhidurabir/envlens/releases/tag/v1.0.0
+[Unreleased]: https://github.com/touhidurabir/envlens/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/touhidurabir/envlens/releases/tag/1.0.0
