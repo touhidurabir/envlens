@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Validation\Factory;
+use Illuminate\Validation\Rule;
 use Touhidurabir\EnvLens\Env\EnvFile;
 use Touhidurabir\EnvLens\Exceptions\InvalidRulesFile;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
@@ -139,4 +140,25 @@ it('never prints the message of an exception thrown by a rule', function () {
     } catch (InvalidRulesFile $e) {
         expect($e->getMessage())->toContain('STRIPE_SECRET')->toContain('RuntimeException')->not->toContain('sk_live_marker');
     }
+});
+
+it('reports an unknown rule even when the key is not set', function () {
+    expect(fn () => validateEnv("B=1\n", ['A' => 'nosuchrule']))->toThrow(InvalidRulesFile::class, 'Unknown rule for A: nosuchrule');
+});
+
+it('accepts every kind of rule Laravel knows when the key is not set', function (mixed $rule) {
+    expect(validateEnv("B=1\n", ['A' => $rule])->failures)->toBe([]);
+})->with([
+    'list of strings' => [['nullable', 'integer', 'min:1']],
+    'sometimes' => ['sometimes|integer'],
+    'bail' => ['bail|integer'],
+    'exclude_if' => ['exclude_if:B,2|integer'],
+    'rule with parameters' => ['between:1,5'],
+    'rule object' => [fn () => Rule::in(['a', 'b'])],
+]);
+
+it('accepts a rule registered with Validator::extend', function () {
+    app(Factory::class)->extend('envlens_custom', fn () => false);
+
+    expect(validateEnv("A=1\n", ['A' => 'envlens_custom'])->failures)->toHaveCount(1);
 });

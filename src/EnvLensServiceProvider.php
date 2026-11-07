@@ -16,6 +16,7 @@ use Touhidurabir\EnvLens\Console\ExplainCommand;
 use Touhidurabir\EnvLens\Console\GenerateCommand;
 use Touhidurabir\EnvLens\Console\KeysCommand;
 use Touhidurabir\EnvLens\Console\SyncCommand;
+use Touhidurabir\EnvLens\Console\ValidateCommand;
 use Touhidurabir\EnvLens\Env\EnvWriter;
 use Touhidurabir\EnvLens\Mutation\EnvGenerator;
 use Touhidurabir\EnvLens\Mutation\EnvSynchronizer;
@@ -94,7 +95,7 @@ class EnvLensServiceProvider extends ServiceProvider
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->commands([KeysCommand::class, CompareCommand::class, AuditCommand::class, ExplainCommand::class, GenerateCommand::class, SyncCommand::class, CleanupCommand::class]);
+            $this->commands([KeysCommand::class, CompareCommand::class, AuditCommand::class, ExplainCommand::class, GenerateCommand::class, SyncCommand::class, CleanupCommand::class, ValidateCommand::class]);
 
             $this->publishes([
                 __DIR__.'/../config/envlens.php' => config_path('envlens.php'),

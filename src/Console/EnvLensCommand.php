@@ -195,7 +195,7 @@ abstract class EnvLensCommand extends Command
         return is_string($value) && $value !== '' ? $value : $default;
     }
 
-    private function resolve(string $relative): string
+    protected function resolve(string $relative): string
     {
         $isAbsolute = str_starts_with($relative, '/') || preg_match('#^[A-Za-z]:[\\\\/]#', $relative) === 1;
 

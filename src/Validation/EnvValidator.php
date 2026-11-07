@@ -6,7 +6,9 @@ namespace Touhidurabir\EnvLens\Validation;
 
 use BadMethodCallException;
 use Illuminate\Contracts\Validation\Factory;
+use Illuminate\Contracts\Validation\Validator as ValidatorContract;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationRuleParser;
 use Illuminate\Validation\Validator;
 use Throwable;
 use Touhidurabir\EnvLens\Exceptions\InvalidRulesFile;
@@ -40,6 +42,8 @@ final class EnvValidator
             $key = (string) $key;
             $validator = $this->factory->make($values, [str_replace('.', '\\.', $key) => $rule], $messages, [$key => $key]);
 
+            $this->ensureRulesExist($validator, $key, $rule);
+
             if ($this->fails($validator, $key)) {
                 $failures[] = $this->failure($validator, $key, $values[$key] ?? null, in_array($key, $inferredKeys, true));
             }
@@ -48,7 +52,28 @@ final class EnvValidator
         return new ValidationReport($failures, count($rules));
     }
 
-    private function fails(\Illuminate\Contracts\Validation\Validator $validator, string $key): bool
+    /**
+     * Laravel skips most rules when a key is absent, so a misspelled rule would pass until the key is
+     * set. Rule names are checked up front instead.
+     */
+    private function ensureRulesExist(ValidatorContract $validator, string $key, mixed $rule): void
+    {
+        $parts = is_string($rule) ? explode('|', $rule) : (is_array($rule) ? $rule : [$rule]);
+
+        foreach ($parts as $part) {
+            $name = is_string($part) ? ValidationRuleParser::parse($part)[0] : null;
+
+            if (! is_string($name) || method_exists(Validator::class, 'validate'.$name)) {
+                continue;
+            }
+
+            if (! $validator instanceof Validator || ! isset($validator->extensions[Str::snake($name)])) {
+                throw InvalidRulesFile::unknownRule($key, Str::snake($name));
+            }
+        }
+    }
+
+    private function fails(ValidatorContract $validator, string $key): bool
     {
         try {
             return $validator->fails();
@@ -59,7 +84,7 @@ final class EnvValidator
         }
     }
 
-    private function failure(\Illuminate\Contracts\Validation\Validator $validator, string $key, mixed $value, bool $inferred): ValidationFailure
+    private function failure(ValidatorContract $validator, string $key, mixed $value, bool $inferred): ValidationFailure
     {
         $sensitive = $this->sensitivity->isSensitive($key, is_string($value) ? $value : null);
         $failed = $validator instanceof Validator ? $validator->failed() : [];
