@@ -8,6 +8,12 @@ use Touhidurabir\EnvLens\Exceptions\EnvFileNotFound;
 
 final class EnvFile
 {
+    /** `#KEY=value`, behind any run of comment markers: `##`, `#;`, `# -` and so on. Groups: prefix, key, value. */
+    public const COMMENTED_ASSIGNMENT = '/^(\s*#[#\s;:*>\-]*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_.]*)\s*=(.*)$/s';
+
+    /** `KEY=value` inside the words of a comment, such as `# Old: KEY=value`. Groups: key, value. */
+    public const PROSE_ASSIGNMENT = '/(?<![\w.])([A-Za-z_][A-Za-z0-9_.]*)=(\S+)/';
+
     /**
      * @param  list<EnvLine>  $lines
      * @param  list<SyntaxError>  $syntaxErrors
@@ -100,9 +106,9 @@ final class EnvFile
     }
 
     /**
-     * Every assignment line in file order: each definition (not just the last one that wins) and each
-     * commented-out assignment such as `#KEY=value`. Commented-out lines never define a key, so this is
-     * only for looking at what the file holds, as secret detection does.
+     * Every assignment in file order: each definition (not just the last one that wins) and each one
+     * inside a comment, such as `#KEY=value` or `# Old: KEY=value`. Comments never define a key, so
+     * this is only for looking at what the file holds, as secret detection does.
      *
      * @return list<EnvLine>
      */
@@ -114,11 +120,7 @@ final class EnvFile
             if ($line->type === EnvEntryType::Key && $line->key !== null) {
                 $found[] = $line;
             } elseif ($line->type === EnvEntryType::Comment) {
-                $commented = self::commentedAssignment($line);
-
-                if ($commented !== null) {
-                    $found[] = $commented;
-                }
+                array_push($found, ...self::commentedAssignments($line));
             }
         }
 
@@ -169,19 +171,29 @@ final class EnvFile
         return implode('', array_map(static fn (EnvLine $l): string => $l->raw, $this->lines));
     }
 
-    private static function commentedAssignment(EnvLine $line): ?EnvLine
+    /**
+     * @return list<EnvLine>
+     */
+    private static function commentedAssignments(EnvLine $line): array
     {
         $text = rtrim($line->raw, "\r\n");
 
-        if (preg_match('/^\s*#\s*((?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=(.*))$/s', $text, $m) !== 1) {
-            return null;
+        if (preg_match(self::COMMENTED_ASSIGNMENT, $text, $m) === 1) {
+            [$lexed] = (new EnvLexer)->lex(substr($text, strlen($m[1]))."\n");
+            $parsed = $lexed[0] ?? null;
+            $value = $parsed !== null && $parsed->type === EnvEntryType::Key ? $parsed->value : null;
+
+            return [new EnvLine(EnvEntryType::Key, $line->raw, $line->line, $m[2], $value ?? trim($m[3]))];
         }
 
-        [$lexed] = (new EnvLexer)->lex($m[1]."\n");
-        $parsed = $lexed[0] ?? null;
-        $value = $parsed !== null && $parsed->type === EnvEntryType::Key ? $parsed->value : null;
+        if (preg_match_all(self::PROSE_ASSIGNMENT, $text, $found, PREG_SET_ORDER) === 0) {
+            return [];
+        }
 
-        return new EnvLine(EnvEntryType::Key, $line->raw, $line->line, $m[2], $value ?? trim($m[3]));
+        return array_map(
+            static fn (array $f): EnvLine => new EnvLine(EnvEntryType::Key, $line->raw, $line->line, $f[1], trim(rtrim($f[2], ',;.'), '"\'')),
+            $found,
+        );
     }
 
     private function last(string $key): ?EnvLine

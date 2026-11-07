@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 use Touhidurabir\EnvLens\Analysis\EnvAnalyzer;
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Scanning\DefaultKind;
+use Touhidurabir\EnvLens\Scanning\EnvUsage;
+use Touhidurabir\EnvLens\Scanning\UsageIndex;
+use Touhidurabir\EnvLens\Scanning\UsageSource;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 
 it('explains presence across files and carries config paths', function () {
@@ -39,4 +43,19 @@ it('masks sensitive literal defaults in json', function () {
     $e = $analyzer->explain('DB_HOST', ['.env' => EnvFile::fromString("DB_HOST=x\n")], analysisIndex());
 
     expect(json_encode($e, JSON_THROW_ON_ERROR))->not->toContain('127.0.0.1');
+});
+
+it('masks the default of a runtime-built sensitive key', function () {
+    $dynamic = new EnvUsage(null, 'config/a.php', 1, UsageSource::Config, null, DefaultKind::Literal, 'hardcoded_marker', '*_SECRET');
+    $index = new UsageIndex([$dynamic]);
+    $env = EnvFile::fromString("A_SECRET=x\n");
+
+    expect(json_encode(analyzer()->explain('A_SECRET', ['.env' => $env], $index)))->not->toContain('hardcoded_marker');
+    expect(json_encode(analyzer()->audit($env, null, $index)))->not->toContain('hardcoded_marker');
+});
+
+it('masks the default of a fully dynamic key, because it could be anything', function () {
+    $dynamic = new EnvUsage(null, 'config/a.php', 1, UsageSource::Config, null, DefaultKind::Literal, 'hardcoded_marker', null);
+
+    expect(json_encode(analyzer()->audit(EnvFile::fromString(''), null, new UsageIndex([$dynamic]))))->not->toContain('hardcoded_marker');
 });

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Exceptions\UnparseableEnvFile;
 use Touhidurabir\EnvLens\Validation\EnvValues;
 
 it('returns what env() would', function (string $line, mixed $expected) {
@@ -40,5 +41,18 @@ it('reads the process environment as env() does', function () {
     } finally {
         putenv('ENVLENS_TEST_ONE');
         putenv('ENVLENS_TEST_TWO');
+    }
+});
+
+it('never surfaces a parser message when the lexer and phpdotenv disagree about a file', function () {
+    $file = EnvFile::fromString("API_SECRET=abc=\"sk_live_marker\nOTHER=\"y z\"\n");
+
+    expect($file->syntaxErrors())->toBe([]);
+
+    try {
+        EnvValues::fromFile($file);
+        $this->fail('Expected UnparseableEnvFile');
+    } catch (UnparseableEnvFile $e) {
+        expect($e->getMessage())->not->toContain('sk_live_marker');
     }
 });

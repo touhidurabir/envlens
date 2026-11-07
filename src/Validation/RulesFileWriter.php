@@ -47,7 +47,7 @@ final class RulesFileWriter
         $location = $rule->file !== null ? " ({$rule->file}:{$rule->line})" : '';
         $assignment = var_export($rule->key, true).' => '.var_export($rule->written, true).',';
 
-        return '        '.($rule->active ? '' : '// ').$assignment.' // '.self::comment($rule->assumption.$location);
+        return '        '.($rule->active ? $assignment : '// '.self::comment($assignment)).' // '.self::comment($rule->assumption.$location);
     }
 
     /** A config default is printed in a comment, so it must not be able to end that comment. */

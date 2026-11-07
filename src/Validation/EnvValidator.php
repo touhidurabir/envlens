@@ -40,7 +40,7 @@ final class EnvValidator
 
         foreach ($rules as $key => $rule) {
             $key = (string) $key;
-            $validator = $this->factory->make($values, [str_replace('.', '\\.', $key) => $rule], $messages, [$key => $key]);
+            $validator = $this->validatorFor($values, $key, $rule, $messages);
 
             $this->ensureRulesExist($validator, $key, $rule);
 
@@ -50,6 +50,19 @@ final class EnvValidator
         }
 
         return new ValidationReport($failures, count($rules));
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @param  array<string, string>  $messages
+     */
+    private function validatorFor(array $values, string $key, mixed $rule, array $messages): ValidatorContract
+    {
+        try {
+            return $this->factory->make($values, [str_replace('.', '\\.', $key) => $rule], $messages, [$key => $key]);
+        } catch (Throwable $e) {
+            throw InvalidRulesFile::ruleFailed($key, $e::class);
+        }
     }
 
     /**

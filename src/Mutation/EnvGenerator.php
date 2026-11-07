@@ -73,6 +73,7 @@ final class EnvGenerator
                 $withValues => [$line->value ?? '', ChangeReason::Copied],
                 ! $useDefaults => ['', ChangeReason::DefaultsOff],
                 Glob::matchesAny($this->skipDefaults, $line->key) => ['', ChangeReason::SkipDefault],
+                $default !== null && $this->sensitivity->isSensitive($line->key, $default) => ['', ChangeReason::Secret],
                 $default !== null && $default !== '' => [$default, ChangeReason::ConfigDefault],
                 default => ['', ChangeReason::NoDefault],
             };
@@ -85,17 +86,23 @@ final class EnvGenerator
     }
 
     /**
-     * A commented-out assignment (`#KEY=value`) is usually an alternate real value, so its value
-     * is dropped: `#KEY=` is kept. Other comments are returned unchanged.
+     * A commented-out assignment (`#KEY=value`, `## KEY=value`) is usually an alternate real value, so
+     * its value is dropped: `#KEY=` is kept. In other comments, only a secret's value is dropped.
      */
     private function blankCommentedAssignment(string $raw): string
     {
-        if (preg_match('/^(\s*#\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_.]*)\s*=/', $raw, $m) !== 1) {
-            return $raw;
+        $eol = str_ends_with($raw, "\r\n") ? "\r\n" : (str_ends_with($raw, "\n") ? "\n" : '');
+        $text = substr($raw, 0, strlen($raw) - strlen($eol));
+
+        if (preg_match(EnvFile::COMMENTED_ASSIGNMENT, $text, $m) === 1) {
+            return $m[1].$m[2].'='.$eol;
         }
 
-        $eol = str_ends_with($raw, "\r\n") ? "\r\n" : (str_ends_with($raw, "\n") ? "\n" : '');
+        // Words around a KEY=value are kept, and only secrets are blanked: `# TIMEOUT=30 is fine` is advice.
+        $blanked = preg_replace_callback(EnvFile::PROSE_ASSIGNMENT, function (array $f): string {
+            return $this->sensitivity->isSensitive($f[1], $f[2]) ? $f[1].'=' : $f[0];
+        }, $text);
 
-        return $m[1].$m[2].'='.$eol;
+        return ($blanked ?? $text).$eol;
     }
 }

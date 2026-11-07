@@ -26,10 +26,15 @@ final readonly class RuleSet
 
     public static function fromFile(string $path): self
     {
+        // require echoes anything outside PHP tags, and --rules=.env would print every secret in the file.
+        ob_start();
+
         try {
             $data = (static fn (string $file): mixed => require $file)($path);
         } catch (Throwable $e) {
             throw InvalidRulesFile::notLoadable($path, $e::class.' on line '.$e->getLine());
+        } finally {
+            ob_end_clean();
         }
 
         if (! is_array($data)) {

@@ -71,3 +71,25 @@ it('rejects a rules file it cannot use, in one line', function (string $php, str
     'parse error' => ['<?php return [', 'could not be loaded'],
     'throws' => ["<?php throw new Exception('boom');", 'could not be loaded'],
 ]);
+
+it('never echoes a file passed by mistake', function () {
+    ob_start();
+
+    try {
+        RuleSet::fromFile(rulesFile("ZED_SECRET=sk_live_marker\n"));
+    } catch (InvalidRulesFile) {
+        // expected
+    } finally {
+        $printed = (string) ob_get_clean();
+    }
+
+    expect($printed)->toBe('');
+});
+
+it('never echoes text before the opening tag of a real rules file', function () {
+    ob_start();
+    $set = RuleSet::fromFile(rulesFile("<<<<<<< HEAD\n<?php return ['rules' => ['A' => 'required']];"));
+    $printed = (string) ob_get_clean();
+
+    expect($printed)->toBe('')->and($set->rulesFor(null))->toHaveKey('A');
+});

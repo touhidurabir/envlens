@@ -57,3 +57,7 @@ it('survives assumptions that could break out of a comment', function (string $a
 it('quotes unusual keys safely', function () {
     expect(writtenRules([inferred("A'B")])->rulesFor(null))->toHaveKey("A'B");
 });
+
+it('survives a commented-out key that could end the comment', function () {
+    expect(writtenRules([inferred('Q2?>KEY', active: false), inferred('A_KEY')])->rulesFor(null))->toHaveKey('A_KEY');
+});

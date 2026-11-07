@@ -355,3 +355,10 @@ it('never shows a sensitive default in the table or the file', function () {
     expect(validateCmd(['--path' => $path, '--init' => true]))->not->toContain('123456')->toContain('config default is a whole number');
     expect(file_get_contents($path.'/env.rules.php'))->not->toContain('123456');
 });
+
+it('never prints a secret when phpdotenv rejects a file the lexer accepted', function (array $options) {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', "API_SECRET=abc=\"sk_live_marker\nOTHER=\"y z\"\n");
+
+    expect(validateCmd(['--path' => $path] + $options, 1))->toContain('could not be parsed')->not->toContain('sk_live_marker');
+})->with(['text' => [[]], 'json' => [['--json' => true]]]);

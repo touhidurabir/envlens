@@ -3,8 +3,13 @@
 declare(strict_types=1);
 
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Mutation\ChangeReason;
 use Touhidurabir\EnvLens\Mutation\EnvGenerator;
 use Touhidurabir\EnvLens\Mutation\GeneratedEnv;
+use Touhidurabir\EnvLens\Scanning\DefaultKind;
+use Touhidurabir\EnvLens\Scanning\EnvUsage;
+use Touhidurabir\EnvLens\Scanning\UsageIndex;
+use Touhidurabir\EnvLens\Scanning\UsageSource;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 
 function generator(): EnvGenerator
@@ -79,4 +84,29 @@ it('never fills a config default for keys in generate.skip_defaults', function (
 
     expect($out->file->toString())->toBe("APP_ENV=\nAPP_DEBUG=\nAPP_NAME=Laravel\n")
         ->and($copied->file->toString())->toBe("APP_ENV=local\n");
+});
+
+it('blanks commented-out secrets behind any comment marker', function (string $comment, string $expected) {
+    expect(generated($comment."\n")->file->toString())->toBe($expected."\n");
+})->with([
+    ['## STRIPE_SECRET=sk_live_x', '## STRIPE_SECRET='],
+    ['#; STRIPE_SECRET=sk_live_x', '#; STRIPE_SECRET='],
+    ['#- STRIPE_SECRET=sk_live_x', '#- STRIPE_SECRET='],
+]);
+
+it('blanks secrets inside a prose comment and leaves the rest of the comment alone', function () {
+    $result = generated("# Old: STRIPE_SECRET=sk_live_x until March, TIMEOUT=30 is fine\n");
+
+    expect($result->file->toString())->toBe("# Old: STRIPE_SECRET= until March, TIMEOUT=30 is fine\n")
+        ->and($result->blankedComments)->toBe(1);
+});
+
+it('does not write a config default that holds credentials', function () {
+    $index = new UsageIndex([
+        new EnvUsage('DB_URL', 'config/a.php', 1, UsageSource::Config, 'a.b', DefaultKind::Literal, 'mysql://u:hunter2@h/db', null),
+    ]);
+    $result = generator()->generate(EnvFile::fromString("DB_URL=x\n"), $index, false, true);
+
+    expect($result->file->toString())->toBe("DB_URL=\n")
+        ->and($result->changes[0]->reason)->toBe(ChangeReason::Secret);
 });

@@ -60,6 +60,7 @@ final class EnvSynchronizer
             [$value, $reason] = match (true) {
                 ! $useDefaults => ['', ChangeReason::DefaultsOff],
                 Glob::matchesAny($this->skipDefaults, $key) => ['', ChangeReason::SkipDefault],
+                $default !== null && $this->sensitivity->isSensitive($key, $default) => ['', ChangeReason::Secret],
                 $default !== null && $default !== '' => [$default, ChangeReason::ConfigDefault],
                 default => ['', ChangeReason::NoDefault],
             };

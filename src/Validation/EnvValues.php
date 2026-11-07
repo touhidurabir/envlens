@@ -5,21 +5,30 @@ declare(strict_types=1);
 namespace Touhidurabir\EnvLens\Validation;
 
 use Dotenv\Dotenv;
+use Dotenv\Exception\InvalidFileException;
 use Illuminate\Support\Env;
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Exceptions\UnparseableEnvFile;
 
 /** Values as `env()` returns them, because that is what rules should judge: `true` not "true", `null` not "null". */
 final class EnvValues
 {
     /**
-     * `${VAR}` references resolve, from the same file only. The file must have no syntax errors:
-     * parser messages can hold the value, so callers check EnvFile::syntaxErrors() first.
+     * `${VAR}` references resolve, from the same file only. phpdotenv reads the whole file where the
+     * lexer reads line by line, so it can reject a file with no syntax errors. Its message can hold
+     * the value, so it is replaced.
      *
      * @return array<string, mixed>
+     *
+     * @throws UnparseableEnvFile
      */
     public static function fromFile(EnvFile $file): array
     {
-        return array_map(self::convert(...), Dotenv::parse($file->toString()));
+        try {
+            return array_map(self::convert(...), Dotenv::parse($file->toString()));
+        } catch (InvalidFileException) {
+            throw UnparseableEnvFile::make();
+        }
     }
 
     /**

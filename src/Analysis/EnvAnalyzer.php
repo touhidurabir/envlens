@@ -364,7 +364,7 @@ final class EnvAnalyzer
             $status,
             $this->resolves($primary, $key, $usages, $dynamic),
             array_map($this->maskUsage(...), $overridden),
-            $dynamic,
+            array_map($this->maskUsage(...), $dynamic),
             $values,
             $status === null && $dynamic === [] ? $this->suggestions($key, $index, $files) : [],
         );
@@ -693,7 +693,14 @@ final class EnvAnalyzer
 
     private function maskUsage(EnvUsage $usage): EnvUsage
     {
-        if ($usage->key === null || $usage->defaultValue === null || ! $this->sensitivity->isSensitive($usage->key, $usage->defaultValue)) {
+        if ($usage->defaultValue === null) {
+            return $usage;
+        }
+
+        // A runtime-built key is judged by the shape of its name; one with no known shape could be anything.
+        $name = $usage->key ?? ($usage->dynamicPattern !== null ? str_replace('*', 'X', $usage->dynamicPattern) : null);
+
+        if ($name !== null && ! $this->sensitivity->isSensitive($name, $usage->defaultValue)) {
             return $usage;
         }
 

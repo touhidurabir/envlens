@@ -7,6 +7,7 @@ namespace Touhidurabir\EnvLens\Console;
 use Touhidurabir\EnvLens\Console\Concerns\WritesAnnotations;
 use Touhidurabir\EnvLens\Env\EnvFile;
 use Touhidurabir\EnvLens\Exceptions\InvalidRulesFile;
+use Touhidurabir\EnvLens\Exceptions\UnparseableEnvFile;
 use Touhidurabir\EnvLens\Support\CiEnvironment;
 use Touhidurabir\EnvLens\Validation\EnvValues;
 use Touhidurabir\EnvLens\Validation\Inference;
@@ -78,7 +79,11 @@ final class ValidateCommand extends EnvLensCommand
                 return $this->syntaxFailure($file, $source);
             }
 
-            $values = EnvValues::fromFile($file);
+            try {
+                $values = EnvValues::fromFile($file);
+            } catch (UnparseableEnvFile $e) {
+                return $this->parseFailure($e, $source);
+            }
         }
 
         $rulesName = $this->stringOption('rules', RuleSet::FILE);
@@ -277,6 +282,21 @@ final class ValidateCommand extends EnvLensCommand
         $fromValues = $values['APP_ENV'] ?? null;
 
         return $this->stringOption('environment', is_string($fromValues) && $fromValues !== '' ? $fromValues : (string) $this->laravel->environment());
+    }
+
+    private function parseFailure(UnparseableEnvFile $e, string $source): int
+    {
+        if ($this->wantsJson()) {
+            return $this->json('env:validate', ['values_from' => $source, 'syntax_errors' => [['line' => null, 'message' => $e->getMessage()]]], 1);
+        }
+
+        if (CiEnvironment::isGitHubActions()) {
+            $this->annotate('error', 'env:validate', $e->getMessage(), $source);
+        }
+
+        $this->error("{$source}: {$e->getMessage()}");
+
+        return 1;
     }
 
     private function syntaxFailure(EnvFile $file, string $source): int

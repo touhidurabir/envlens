@@ -3,7 +3,12 @@
 declare(strict_types=1);
 
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Mutation\ChangeReason;
 use Touhidurabir\EnvLens\Mutation\EnvSynchronizer;
+use Touhidurabir\EnvLens\Scanning\DefaultKind;
+use Touhidurabir\EnvLens\Scanning\EnvUsage;
+use Touhidurabir\EnvLens\Scanning\UsageIndex;
+use Touhidurabir\EnvLens\Scanning\UsageSource;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 
 function synchronizer(): EnvSynchronizer
@@ -50,4 +55,14 @@ it('never fills a config default for keys in generate.skip_defaults', function (
     $adds = $sync->planSync(EnvFile::fromString("APP_ENV=local\nAPP_DEBUG=true\nAPP_NAME=x\n"), EnvFile::fromString(''), analysisIndex(), [], true)->adds();
 
     expect(array_map(fn ($c) => $c->value, $adds))->toBe(['', '', 'Laravel']);
+});
+
+it('does not plan a config default that holds credentials', function () {
+    $index = new UsageIndex([
+        new EnvUsage('DB_URL', 'config/a.php', 1, UsageSource::Config, 'a.b', DefaultKind::Literal, 'mysql://u:hunter2@h/db', null),
+    ]);
+    $plan = synchronizer()->planSync(EnvFile::fromString("DB_URL=x\n"), EnvFile::fromString(''), $index, [], true);
+
+    expect($plan->changes[0]->value)->toBe('')
+        ->and($plan->changes[0]->reason)->toBe(ChangeReason::Secret);
 });

@@ -162,3 +162,7 @@ it('accepts a rule registered with Validator::extend', function () {
 
     expect(validateEnv("A=1\n", ['A' => 'envlens_custom'])->failures)->toHaveCount(1);
 });
+
+it('reports a rule that is not a rule as a usage error', function () {
+    expect(fn () => validateEnv("A=1\n", ['A' => new stdClass]))->toThrow(InvalidRulesFile::class, 'A rule for A threw');
+});
