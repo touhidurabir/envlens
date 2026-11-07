@@ -147,15 +147,7 @@ final class EnvAnalyzer
             $status = $this->statusInFile($key, $index);
 
             if ($status === KeyStatus::Unused) {
-                $findings[] = new Finding(
-                    FindingCode::UnusedKey,
-                    "{$key} is defined in {$label} but nothing references it",
-                    $key,
-                    $file->path(),
-                    $this->firstLine($file, $key),
-                    "{$label}:{$this->firstLine($file, $key)}",
-                    'Remove it (php artisan env:cleanup --unused), or add it to envlens.cleanup.keep if something outside PHP reads it.',
-                );
+                $findings[] = $this->unused($key, $file);
             } elseif ($status === KeyStatus::Used && $file->isEmpty($key) && $index->isUsed($key)) {
                 $findings[] = new Finding(
                     FindingCode::EmptyValue,
@@ -169,17 +161,7 @@ final class EnvAnalyzer
             }
         }
 
-        foreach ($file->syntaxErrors() as $error) {
-            $findings[] = new Finding(
-                FindingCode::Syntax,
-                "Syntax error in {$label} line {$error->line}: {$error->message}",
-                null,
-                $file->path(),
-                $error->line,
-                preg_replace('/^Failed to parse dotenv file\.\s*/', '', $error->message) ?? $error->message,
-                "Fix line {$error->line} of {$label}.",
-            );
-        }
+        array_push($findings, ...$this->syntaxFindings($file));
 
         if ($example === null) {
             $optional = count(array_filter($findings, static fn (Finding $f): bool => $f->code === FindingCode::MissingOptional));
@@ -235,13 +217,51 @@ final class EnvAnalyzer
             $findings[] = new Finding(FindingCode::ScanWarning, $warning, hint: 'Fix the file so EnvLens can scan it.');
         }
 
-        $byFile = [];
-        foreach ($index->reportable() as $usage) {
-            $byFile[$usage->file][] = $this->maskUsage($usage);
-        }
-        ksort($byFile);
+        return new AuditReport($this->usagesByFile($index), $findings);
+    }
 
-        return new AuditReport($byFile, $findings);
+    /**
+     * Checks config and code against the example file alone, with no real env file: the checks that
+     * need real values (empty-value, missing-*, example-drift) cannot run, and because this is a gate,
+     * a file that could not be scanned is an error rather than a warning.
+     */
+    public function contract(EnvFile $example, UsageIndex $index): AuditReport
+    {
+        $findings = [];
+
+        foreach ($index->all() as $usage) {
+            if ($usage->source === UsageSource::Code && ! Glob::matchesAny($this->allowOutsideConfig, $usage->file)) {
+                $findings[] = $this->outsideConfig($usage);
+            }
+        }
+
+        foreach ($index->keys() as $key) {
+            if ($this->isUndeclared($key, $example, $index)) {
+                $findings[] = $this->undeclared($key, $example, $index);
+            }
+        }
+
+        foreach ($index->dynamic() as $usage) {
+            $findings[] = $this->dynamic($usage);
+        }
+
+        foreach ($example->duplicates() as $key => $lines) {
+            $findings[] = $this->duplicate((string) $key, $lines, $example);
+        }
+
+        foreach ($example->keys() as $key) {
+            if ($this->statusInFile($key, $index) === KeyStatus::Unused) {
+                $findings[] = $this->unused($key, $example);
+            }
+        }
+
+        array_push($findings, ...$this->syntaxFindings($example), ...$this->exampleSecrets($example, Severity::Error));
+
+        foreach ($index->warnings() as $warning) {
+            $findings[] = new Finding(FindingCode::ScanWarning, $warning, hint: 'Fix the file so EnvLens can scan it.', severityOverride: Severity::Error);
+        }
+
+        return new AuditReport($this->usagesByFile($index), $findings);
     }
 
     /**
@@ -479,6 +499,96 @@ final class EnvAnalyzer
         return new Finding($code, $message, $key, $file->path(), null, $this->pathsDetail($index, $key), $hint);
     }
 
+    /** App config reads it with no default, and nothing tells teammates about it. */
+    private function isUndeclared(string $key, EnvFile $example, UsageIndex $index): bool
+    {
+        return $index->isRequired($key)
+            && ! $example->has($key)
+            && ! $index->isReadByFramework($key)
+            && (Glob::matchesAny($this->required, $key) || ! Glob::matchesAny($this->optional, $key));
+    }
+
+    private function undeclared(string $key, EnvFile $example, UsageIndex $index): Finding
+    {
+        $label = $this->label($example);
+        $usage = null;
+
+        foreach ($index->for($key) as $candidate) {
+            if ($candidate->source === UsageSource::Config) {
+                $usage = $candidate;
+
+                break;
+            }
+        }
+
+        return new Finding(
+            FindingCode::UndeclaredKey,
+            "{$key} is read by config{$this->pathsSuffix($index, $key)} with no default, but {$label} does not list it",
+            $key,
+            $usage?->file,
+            $usage?->line,
+            $usage !== null ? "{$usage->file}:{$usage->line}" : null,
+            "Add {$key}= to {$label}, and also list it in envlens.optional if it is not required.",
+        );
+    }
+
+    private function unused(string $key, EnvFile $file): Finding
+    {
+        $label = $this->label($file);
+        $line = $this->firstLine($file, $key);
+
+        return new Finding(
+            FindingCode::UnusedKey,
+            "{$key} is defined in {$label} but nothing references it",
+            $key,
+            $file->path(),
+            $line,
+            "{$label}:{$line}",
+            'Remove it (php artisan env:cleanup --unused), or add it to envlens.cleanup.keep if something outside PHP reads it.',
+        );
+    }
+
+    /**
+     * @return list<Finding>
+     */
+    private function syntaxFindings(EnvFile $file): array
+    {
+        $label = $this->label($file);
+        $findings = [];
+
+        foreach ($file->syntaxErrors() as $error) {
+            $findings[] = new Finding(
+                FindingCode::Syntax,
+                "Syntax error in {$label} line {$error->line}: {$error->message}",
+                null,
+                $file->path(),
+                $error->line,
+                preg_replace('/^Failed to parse dotenv file\.\s*/', '', $error->message) ?? $error->message,
+                "Fix line {$error->line} of {$label}.",
+            );
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Usages worth reporting, by file, with sensitive defaults masked.
+     *
+     * @return array<string, list<EnvUsage>>
+     */
+    private function usagesByFile(UsageIndex $index): array
+    {
+        $byFile = [];
+
+        foreach ($index->reportable() as $usage) {
+            $byFile[$usage->file][] = $this->maskUsage($usage);
+        }
+
+        ksort($byFile);
+
+        return $byFile;
+    }
+
     /**
      * Sensitive keys with a real-looking value in the example file. Every line counts, not just the
      * value that wins: a commented-out or overridden secret is committed all the same. Findings
@@ -486,7 +596,7 @@ final class EnvAnalyzer
      *
      * @return list<Finding>
      */
-    private function exampleSecrets(EnvFile $example): array
+    private function exampleSecrets(EnvFile $example, ?Severity $severity = null): array
     {
         $label = $this->label($example);
         $findings = [];
@@ -510,6 +620,7 @@ final class EnvAnalyzer
                 $line->line,
                 "{$label}:{$line->line}",
                 "Blank the value in {$label} and rotate the secret: it stays in git history. If it is meant to be there, list {$key} in envlens.ci.allow_values.",
+                $severity,
             );
         }
 

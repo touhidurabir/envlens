@@ -20,11 +20,12 @@ final readonly class Finding implements JsonSerializable
         public ?int $line = null,
         public ?string $detail = null,
         public ?string $hint = null,
+        public ?Severity $severityOverride = null,
     ) {}
 
     public function severity(): Severity
     {
-        return $this->code->severity();
+        return $this->severityOverride ?? $this->code->severity();
     }
 
     /**

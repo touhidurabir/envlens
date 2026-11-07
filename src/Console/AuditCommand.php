@@ -24,6 +24,7 @@ final class AuditCommand extends EnvLensCommand
         {--example= : Example env file (default: envlens.files.example)}
         {--vendor : Also scan the config of every vendor package and report framework usage in full}
         {--fail-on=error : Exit 1 at this severity or worse (error|warning|info|none)}
+        {--ci : Check config and code against the example file alone; needs no .env}
         {--json : Output JSON}
         {--path= : Project base path}';
 
@@ -40,6 +41,10 @@ final class AuditCommand extends EnvLensCommand
             return 2;
         }
 
+        if ($this->option('ci')) {
+            return $this->performCi($failOn, $level);
+        }
+
         $file = $this->envFile($this->stringOption('file', $this->sourceName()));
         $exampleName = $this->stringOption('example', $this->exampleName());
         $example = $this->envFile($exampleName, false);
@@ -53,13 +58,49 @@ final class AuditCommand extends EnvLensCommand
             return $this->json('env:audit', $report, $exit);
         }
 
+        $label = $this->label($file);
+        $against = $exampleFile !== null ? " against <fg=cyan>{$this->label($exampleFile)}</>" : ' <fg=yellow>(no example file)</>';
+
+        return $this->renderReport($report, $file, "Auditing <fg=cyan>{$label}</>{$against}", '', $exit, $failOn);
+    }
+
+    /** The CI gate: the example file is the contract, and nothing reads a real env file. */
+    private function performCi(string $failOn, ?Severity $level): int
+    {
+        if ($this->option('file') !== null) {
+            $this->error('--ci checks the example file, so it cannot be combined with --file.');
+
+            return 2;
+        }
+
+        $example = $this->envFile($this->stringOption('example', $this->exampleName()));
+        $index = $this->index(false);
+
+        if (! $index->hasConfigUsages()) {
+            $this->error('No env() reads were found in config, so there is nothing to check. Set envlens.scan.config_paths if your config lives elsewhere.');
+
+            return 2;
+        }
+
+        $report = $this->lens()->analyzer()->contract($example, $index);
+        $exit = $level !== null && $report->has($level) ? 1 : 0;
+
+        if ($this->wantsJson()) {
+            return $this->json('env:audit', $report, $exit);
+        }
+
+        return $this->renderReport($report, $example, "Checking <fg=cyan>{$this->label($example)}</> as the contract", ' · no .env needed', $exit, $failOn);
+    }
+
+    private function renderReport(AuditReport $report, EnvFile $file, string $title, string $suffix, int $exit, string $failOn): int
+    {
         // Termwind writes to stdout until told otherwise; send it through this command's output.
         renderUsing($this->output);
 
         $label = $this->label($file);
         $groups = $this->groups($report);
 
-        $this->header($report, $label, $exampleFile !== null ? $this->label($exampleFile) : null);
+        $this->header($report, $title, $suffix);
         $this->verdict($report, $exit, $failOn);
 
         if ($groups === []) {
@@ -86,22 +127,21 @@ final class AuditCommand extends EnvLensCommand
         $findings = $report->findings;
         usort($findings, static fn (Finding $a, Finding $b): int => $a->code->priority() <=> $b->code->priority());
 
+        /** @var array<string, list<Finding>> $groups */
         $groups = [];
         foreach ($findings as $finding) {
             $groups[$finding->code->value][] = $finding;
         }
 
-        uksort($groups, static function (string $a, string $b): int {
-            $codeA = FindingCode::from($a);
-            $codeB = FindingCode::from($b);
-
-            return [self::rank($codeA->severity()), $codeA->priority()] <=> [self::rank($codeB->severity()), $codeB->priority()];
+        uksort($groups, static function (string $a, string $b) use ($groups): int {
+            return [self::rank($groups[$a][0]->severity()), FindingCode::from($a)->priority()]
+                <=> [self::rank($groups[$b][0]->severity()), FindingCode::from($b)->priority()];
         });
 
         return $groups;
     }
 
-    private function header(AuditReport $report, string $label, ?string $exampleLabel): void
+    private function header(AuditReport $report, string $title, string $suffix): void
     {
         $config = [];
         $code = [];
@@ -112,11 +152,9 @@ final class AuditCommand extends EnvLensCommand
             }
         }
 
-        $against = $exampleLabel !== null ? " against <fg=cyan>{$exampleLabel}</>" : ' <fg=yellow>(no example file)</>';
-
         $this->newLine();
-        $this->line("  Auditing <fg=cyan>{$label}</>{$against} · ".count($config).' config '.$this->plural(count($config), 'file').', '
-            .count($code).' code '.$this->plural(count($code), 'file').' scanned');
+        $this->line("  {$title} · ".count($config).' config '.$this->plural(count($config), 'file').', '
+            .count($code).' code '.$this->plural(count($code), 'file').' scanned'.$suffix);
     }
 
     private function verdict(AuditReport $report, int $exit, string $failOn): void
@@ -211,6 +249,9 @@ final class AuditCommand extends EnvLensCommand
 
         $step = match ($code) {
             FindingCode::ExampleSecret => "Blank {$count} real-looking ".$this->plural($count, 'secret')." in the example file ({$places}) and rotate ".($count === 1 ? 'it' : 'them').': values stay in git history.',
+            FindingCode::UndeclaredKey => $count === 1
+                ? "Add {$findings[0]->key} to the example file: config reads it with no default ({$findings[0]->detail})."
+                : "Add {$count} keys to the example file ({$keys}): config reads them with no default.",
             FindingCode::Syntax => "Fix {$count} syntax ".$this->plural($count, 'error')." in {$label} (".$this->names(array_map(static fn (Finding $f): string => 'line '.$f->line, $findings)).').',
             FindingCode::MissingRequired => $count === 1
                 ? "Add {$findings[0]->key} to {$label}: required by {$findings[0]->detail}, no default."
@@ -243,10 +284,9 @@ final class AuditCommand extends EnvLensCommand
 
         $this->line('  <options=bold>What the codes mean</>');
 
-        foreach (array_keys($groups) as $code) {
-            $finding = FindingCode::from($code);
-            $color = $this->color($finding->severity());
-            $this->line("  <fg={$color}>".str_pad($code, $width)."</>  <fg=gray>{$finding->meaning()}</>");
+        foreach ($groups as $code => $findings) {
+            $color = $this->color($findings[0]->severity());
+            $this->line("  <fg={$color}>".str_pad($code, $width).'</>  <fg=gray>'.FindingCode::from($code)->meaning().'</>');
         }
     }
 
@@ -259,7 +299,7 @@ final class AuditCommand extends EnvLensCommand
     private function findings(array $groups): void
     {
         foreach ($groups as $code => $findings) {
-            $severity = FindingCode::from($code)->severity();
+            $severity = $findings[0]->severity();
             $count = count($findings);
             $badge = match ($severity) {
                 Severity::Error => 'ERROR',

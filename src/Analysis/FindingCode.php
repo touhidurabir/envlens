@@ -19,11 +19,12 @@ enum FindingCode: string
     case ExampleDrift = 'example-drift';
     case ScanWarning = 'scan-warning';
     case ExampleSecret = 'example-secret';
+    case UndeclaredKey = 'undeclared-key';
 
     public function severity(): Severity
     {
         return match ($this) {
-            self::EnvOutsideConfig, self::MissingRequired, self::Syntax => Severity::Error,
+            self::EnvOutsideConfig, self::MissingRequired, self::Syntax, self::UndeclaredKey => Severity::Error,
             self::EmptyValue, self::DynamicKey, self::DuplicateKey, self::NoExample, self::ExampleDrift, self::ScanWarning, self::ExampleSecret => Severity::Warning,
             self::UnusedKey, self::MissingWithDefault, self::MissingOptional => Severity::Info,
         };
@@ -35,7 +36,7 @@ enum FindingCode: string
         return match ($this) {
             self::ExampleSecret => 0,
             self::Syntax => 1,
-            self::MissingRequired => 2,
+            self::MissingRequired, self::UndeclaredKey => 2,
             self::EmptyValue => 3,
             self::EnvOutsideConfig => 4,
             self::DuplicateKey => 5,
@@ -55,6 +56,7 @@ enum FindingCode: string
         return match ($this) {
             self::ExampleSecret => 'a sensitive key has a real-looking value in the example file, which is committed',
             self::Syntax => 'a line in the env file could not be parsed',
+            self::UndeclaredKey => 'config reads it with no default, but the example file does not list it',
             self::MissingRequired => 'config reads it with no default, it is declared required, and the file lacks it',
             self::EmptyValue => "set but empty: env() returns '' and the config default is not used",
             self::EnvOutsideConfig => 'env() called outside config/; it returns null once config is cached',
