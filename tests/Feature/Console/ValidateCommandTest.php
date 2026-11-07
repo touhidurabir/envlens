@@ -195,3 +195,163 @@ it('says when there is nothing to check', function () {
 
     expect(validateCmd(['--path' => $path]))->toContain('Nothing to check');
 });
+
+const VALIDATE_PROMPT = 'No env.rules.php found. How do you want to validate .env?';
+const VALIDATE_CHOICES = [
+    'infer' => 'Run checks inferred from your config (writes nothing)',
+    'generate' => 'Generate env.rules.php from your config and review it',
+];
+
+it('asks what to do when there is no rules file', function () {
+    $this->artisan('env:validate', ['--path' => validateProject()])
+        ->expectsChoice(VALIDATE_PROMPT, 'infer', VALIDATE_CHOICES)
+        ->expectsOutputToContain('-n')
+        ->assertExitCode(0);
+});
+
+it('writes nothing when told to run the inferred checks', function () {
+    $path = validateProject();
+
+    $this->artisan('env:validate', ['--path' => $path])->expectsChoice(VALIDATE_PROMPT, 'infer', VALIDATE_CHOICES)->assertExitCode(0);
+
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse();
+});
+
+it('generates the rules file when asked, then validates with it', function () {
+    $path = validateProject("DB_PORT=not-a-port\n");
+
+    $this->artisan('env:validate', ['--path' => $path])
+        ->expectsChoice(VALIDATE_PROMPT, 'generate', VALIDATE_CHOICES)
+        ->expectsConfirmation('Write env.rules.php?', 'yes')
+        ->expectsOutputToContain('Validating .env')
+        ->assertExitCode(1);
+
+    expect(file_get_contents($path.'/env.rules.php'))->toContain("'DB_PORT' => 'nullable|integer'");
+});
+
+it('stops without validating when the generated file is declined', function () {
+    $path = validateProject();
+
+    $this->artisan('env:validate', ['--path' => $path])
+        ->expectsChoice(VALIDATE_PROMPT, 'generate', VALIDATE_CHOICES)
+        ->expectsConfirmation('Write env.rules.php?', 'no')
+        ->expectsOutputToContain('Aborted.')
+        ->assertExitCode(1);
+
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse();
+});
+
+it('never asks when a rules file exists or one is named', function () {
+    $path = validateProject('', "['rules' => []]");
+
+    $this->artisan('env:validate', ['--path' => $path])->assertExitCode(0);
+    $this->artisan('env:validate', ['--path' => $path, '--rules' => 'env.rules.php'])->assertExitCode(0);
+});
+
+it('never asks on a CI system', function (string $variable) {
+    putenv($variable);
+
+    $this->artisan('env:validate', ['--path' => validateProject()])->assertExitCode(0);
+})->with(['CI=true', 'CI=1', 'GITHUB_ACTIONS=true']);
+
+it('never asks with --json or --no-interaction', function (string $option) {
+    $this->artisan('env:validate', ['--path' => validateProject(), $option => true])->assertExitCode(0);
+})->with(['--json', '--no-interaction']);
+
+it('never asks in production', function () {
+    $this->app['env'] = 'production';
+
+    $this->artisan('env:validate', ['--path' => validateProject()])->assertExitCode(0);
+});
+
+it('shows every rule and its assumption before writing with --init', function () {
+    $path = validateProject();
+    $output = validateCmd(['--path' => $path, '--init' => true]);
+
+    expect($output)->toContain('Generating env.rules.php from your config')
+        ->toMatch('/DB_PORT\s*\|\s*nullable\|integer\s*\|\s*config default 3306 is a whole number\s*\|\s*config\/database\.php:\d+/')
+        ->toMatch('/APP_KEY\s*\|\s*required\s*\|\s*Laravel cannot encrypt without it/')
+        ->toMatch('/AWS_BUCKET\s*\|\s*required \(commented out\)\s*\|\s*no default, and declared required; may be optional/')
+        ->toMatch('/Active rules \/ commented out\s*\.+\s*28 \/ 8/')
+        ->toMatch('/No rule: free-text \/ non-literal \/ conflicting default\s*\.+\s*\d+ \/ \d+ \/ \d+/')
+        ->toMatch('/No rule: no default and not declared\s*\.+\s*\d+/')
+        ->toContain('DONE')
+        ->toContain('git add env.rules.php');
+
+    $php = (string) file_get_contents($path.'/env.rules.php');
+    expect($php)->toContain("// 'AWS_BUCKET' => 'required',")->toContain("'infer' => true,");
+
+    expect(validateCmd(['--path' => $path]))->toMatch('/PASS/')->toContain('from env.rules.php');
+});
+
+it('lists keys with no rule only with -v', function () {
+    $path = validateProject();
+
+    expect(validateCmd(['--path' => $path, '--init' => true, '--dry-run' => true]))->not->toContain('LOG_CHANNEL');
+
+    expect(Artisan::call('env:validate', ['--path' => $path, '--init' => true, '--dry-run' => true, '-v' => true, '--no-interaction' => true]))->toBe(0);
+    expect(Artisan::output())->toMatch('/Free-text default.*LOG_CHANNEL/s');
+});
+
+it('writes nothing with --dry-run, even when the file exists', function () {
+    $path = validateProject();
+
+    expect(validateCmd(['--path' => $path, '--init' => true, '--dry-run' => true]))->toContain('dry run, nothing written')->not->toContain('DONE');
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse();
+
+    file_put_contents($path.'/env.rules.php', "<?php\n\nreturn ['rules' => []];\n");
+    validateCmd(['--path' => $path, '--init' => true, '--dry-run' => true]);
+    expect(file_get_contents($path.'/env.rules.php'))->toBe("<?php\n\nreturn ['rules' => []];\n");
+});
+
+it('exits 2 for --dry-run without --init', function () {
+    expect(validateCmd(['--path' => validateProject(), '--dry-run' => true], 2))->toContain('--dry-run needs --init');
+});
+
+it('never overwrites an existing rules file', function () {
+    $path = validateProject('', "['rules' => ['A' => 'integer']]");
+    $before = file_get_contents($path.'/env.rules.php');
+
+    expect(validateCmd(['--path' => $path, '--init' => true], 1))->toContain('already exists')->toContain('--dry-run');
+    expect(file_get_contents($path.'/env.rules.php'))->toBe($before);
+});
+
+it('refuses to generate in production, but allows a dry run', function () {
+    $this->app['env'] = 'production';
+    $path = validateProject();
+
+    expect(validateCmd(['--path' => $path, '--init' => true], 1))->toContain('production');
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse();
+
+    validateCmd(['--path' => $path, '--init' => true, '--dry-run' => true]);
+});
+
+it('asks before writing with --init, defaulting to yes, and writes without asking when not interactive', function () {
+    $path = validateProject();
+
+    $this->artisan('env:validate', ['--path' => $path, '--init' => true])
+        ->expectsConfirmation('Write env.rules.php?', 'no')
+        ->assertExitCode(1);
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse();
+
+    $this->artisan('env:validate', ['--path' => $path, '--init' => true])
+        ->expectsConfirmation('Write env.rules.php?', 'yes')
+        ->assertExitCode(0);
+    expect(file_exists($path.'/env.rules.php'))->toBeTrue();
+});
+
+it('writes to the path named by --rules', function () {
+    $path = validateProject();
+
+    validateCmd(['--path' => $path, '--init' => true, '--rules' => 'custom.rules.php']);
+
+    expect(file_exists($path.'/custom.rules.php'))->toBeTrue()->and(file_exists($path.'/env.rules.php'))->toBeFalse();
+});
+
+it('never shows a sensitive default in the table or the file', function () {
+    $path = validateProject();
+    file_put_contents($path.'/config/partner.php', "<?php\n\nreturn ['s' => env('PARTNER_SECRET', 123456)];\n");
+
+    expect(validateCmd(['--path' => $path, '--init' => true]))->not->toContain('123456')->toContain('config default is a whole number');
+    expect(file_get_contents($path.'/env.rules.php'))->not->toContain('123456');
+});

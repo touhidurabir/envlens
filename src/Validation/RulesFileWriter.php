@@ -1,0 +1,58 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Touhidurabir\EnvLens\Validation;
+
+/** Renders inferred rules as an `env.rules.php`, keeping the assumption behind each one beside it. */
+final class RulesFileWriter
+{
+    public function render(Inference $inference): string
+    {
+        $rules = $inference->rules;
+        usort($rules, static fn (InferredRule $a, InferredRule $b): int => $a->key <=> $b->key);
+
+        $lines = array_map(self::line(...), $rules);
+        $body = $lines === [] ? '' : implode("\n", $lines)."\n";
+
+        return <<<PHP
+        <?php
+
+        // Rules for php artisan env:validate, generated from your config. Review them: each comment says
+        // what was assumed. A failure here fails the command, so change or remove what is wrong for you.
+        // Any Laravel validation rule works. Values are what env() returns, so remember: min, max and
+        // between measure a value's length unless the key also has integer or numeric.
+
+        return [
+            'rules' => [
+        {$body}    ],
+
+            // Rules added for one environment, on top of the rules above:
+            // 'environments' => [
+            //     'production' => ['APP_DEBUG' => 'declined', 'APP_URL' => 'starts_with:https://'],
+            // ],
+
+            // Custom messages. Never shown for sensitive keys, where only the rule's name is printed:
+            // 'messages' => ['APP_URL.starts_with' => 'Production must use https.'],
+
+            // Keep checking keys not listed above, from how config reads them. These only warn:
+            'infer' => true,
+        ];
+
+        PHP;
+    }
+
+    private static function line(InferredRule $rule): string
+    {
+        $location = $rule->file !== null ? " ({$rule->file}:{$rule->line})" : '';
+        $assignment = var_export($rule->key, true).' => '.var_export($rule->written, true).',';
+
+        return '        '.($rule->active ? '' : '// ').$assignment.' // '.self::comment($rule->assumption.$location);
+    }
+
+    /** A config default is printed in a comment, so it must not be able to end that comment. */
+    private static function comment(string $text): string
+    {
+        return str_replace(["\r", "\n", '?>'], [' ', ' ', '? >'], $text);
+    }
+}

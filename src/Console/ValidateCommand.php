@@ -9,10 +9,14 @@ use Touhidurabir\EnvLens\Env\EnvFile;
 use Touhidurabir\EnvLens\Exceptions\InvalidRulesFile;
 use Touhidurabir\EnvLens\Support\CiEnvironment;
 use Touhidurabir\EnvLens\Validation\EnvValues;
+use Touhidurabir\EnvLens\Validation\Inference;
+use Touhidurabir\EnvLens\Validation\InferredRule;
 use Touhidurabir\EnvLens\Validation\RuleSet;
+use Touhidurabir\EnvLens\Validation\RulesFileWriter;
 use Touhidurabir\EnvLens\Validation\ValidationFailure;
 use Touhidurabir\EnvLens\Validation\ValidationReport;
 
+use function Laravel\Prompts\select;
 use function Termwind\render;
 use function Termwind\renderUsing;
 
@@ -26,6 +30,8 @@ final class ValidateCommand extends EnvLensCommand
         {--rules= : Rules file (default: env.rules.php)}
         {--environment= : Environment whose rules to add (default: APP_ENV in the values, then the running app)}
         {--strict : Also fail on checks inferred from config}
+        {--init : Generate a rules file from your config, showing the assumption behind each rule}
+        {--dry-run : With --init, show the rules without writing}
         {--json : Output JSON}
         {--path= : Project base path}';
 
@@ -37,6 +43,16 @@ final class ValidateCommand extends EnvLensCommand
             $this->error('--from-env reads the process environment, so it cannot be combined with --file.');
 
             return 2;
+        }
+
+        if ($this->option('dry-run') && ! $this->option('init')) {
+            $this->error('--dry-run needs --init.');
+
+            return 2;
+        }
+
+        if ($this->option('init')) {
+            return $this->generateRules();
         }
 
         try {
@@ -71,6 +87,18 @@ final class ValidateCommand extends EnvLensCommand
 
         if (! $hasRulesFile && $this->option('rules') !== null) {
             throw InvalidRulesFile::notLoadable($rulesName, 'file not found');
+        }
+
+        $asked = ! $hasRulesFile && $this->shouldPrompt();
+
+        if ($asked && $this->choosesToGenerate($source)) {
+            $generated = $this->generateRules();
+
+            if ($generated !== 0) {
+                return $generated;
+            }
+
+            $hasRulesFile = true;
         }
 
         $set = $hasRulesFile ? RuleSet::fromFile($rulesPath) : new RuleSet;
@@ -111,7 +139,132 @@ final class ValidateCommand extends EnvLensCommand
         $this->summary($report);
         $this->notes($report, $hasRulesFile, $inferred !== [], $strict);
 
+        if ($asked && ! $hasRulesFile) {
+            $this->line('  <fg=gray>Use -n to skip this question next time.</>');
+            $this->newLine();
+        }
+
         return $exit;
+    }
+
+    /** Only a person at a terminal can answer: not in CI, in production, with --json, or with no terminal (a git hook). */
+    private function shouldPrompt(): bool
+    {
+        return $this->input->isInteractive()
+            && ! $this->wantsJson()
+            && ! CiEnvironment::isCi()
+            && ! $this->lens()->guard()->isProduction($this->basePath())
+            && ($this->laravel->runningUnitTests() || stream_isatty(STDIN));
+    }
+
+    private function choosesToGenerate(string $source): bool
+    {
+        return select(
+            label: 'No '.RuleSet::FILE." found. How do you want to validate {$source}?",
+            options: [
+                'infer' => 'Run checks inferred from your config (writes nothing)',
+                'generate' => 'Generate '.RuleSet::FILE.' from your config and review it',
+            ],
+            default: 'infer',
+        ) === 'generate';
+    }
+
+    private function generateRules(): int
+    {
+        $name = $this->stringOption('rules', RuleSet::FILE);
+        $path = $this->resolve($name);
+        $dryRun = (bool) $this->option('dry-run');
+
+        if (! $dryRun && is_file($path)) {
+            $this->error("{$name} already exists, and is never overwritten. To see what would be generated, use --init --dry-run.");
+
+            return 1;
+        }
+
+        if (! $dryRun && $this->lens()->guard()->isProduction($this->basePath())) {
+            $this->error("Refusing to write {$name} in production: it belongs in the repository.");
+
+            return 1;
+        }
+
+        $inference = $this->lens()->inferrer()->infer($this->index(), $this->exampleFile());
+
+        renderUsing($this->output);
+
+        $this->rulesTable($inference, $name, $dryRun);
+        $this->rulesSummary($inference);
+
+        if ($dryRun) {
+            $this->newLine();
+
+            return 0;
+        }
+
+        $this->newLine();
+
+        if ($this->shouldPrompt() && ! $this->confirm("Write {$name}?", true)) {
+            $this->line('Aborted.');
+
+            return 1;
+        }
+
+        if (@file_put_contents($path, (new RulesFileWriter)->render($inference)) === false) {
+            $this->error("Could not write {$name}.");
+
+            return 1;
+        }
+
+        render(<<<HTML
+            <div class="mx-2">
+                <span class="px-1 bg-green text-black font-bold">DONE</span>
+                <span class="ml-1">Generated {$name}.</span>
+            </div>
+        HTML);
+        $this->line("  <fg=gray>Review it, then commit it:</> git add {$name}");
+        $this->newLine();
+
+        return 0;
+    }
+
+    private function rulesTable(Inference $inference, string $name, bool $dryRun): void
+    {
+        $rules = $inference->rules;
+        usort($rules, static fn (InferredRule $a, InferredRule $b): int => $a->key <=> $b->key);
+        $count = count($rules);
+
+        $this->newLine();
+        $this->line("  Generating <fg=cyan>{$name}</> from your config · {$count} ".$this->plural($count, 'rule').($dryRun ? ' · <fg=yellow>dry run, nothing written</>' : ''));
+        $this->newLine();
+
+        $this->table(['Key', 'Rule', 'Assumption', 'Read at'], array_map(static fn (InferredRule $r): array => [
+            $r->key,
+            $r->written.($r->active ? '' : ' (commented out)'),
+            $r->assumption,
+            $r->file !== null ? "{$r->file}:{$r->line}" : '',
+        ], $rules));
+    }
+
+    private function rulesSummary(Inference $inference): void
+    {
+        $active = count(array_filter($inference->rules, static fn (InferredRule $r): bool => $r->active));
+        $commented = count($inference->rules) - $active;
+        $skipped = $inference->skipped;
+
+        $this->newLine();
+        $this->components->twoColumnDetail('<fg=green;options=bold>Summary</>');
+        $this->components->twoColumnDetail('Active rules / commented out', "{$active} / {$commented}");
+        $this->components->twoColumnDetail('No rule: free-text / non-literal / conflicting default', count($skipped['free']).' / '.count($skipped['nonLiteral']).' / '.count($skipped['conflicting']));
+        $this->components->twoColumnDetail('No rule: no default and not declared', (string) count($skipped['none']));
+
+        if ($this->output->isVerbose()) {
+            foreach (['free' => 'Free-text default', 'nonLiteral' => 'Non-literal default', 'conflicting' => 'Conflicting defaults', 'none' => 'No default and not declared'] as $reason => $label) {
+                if ($skipped[$reason] !== []) {
+                    $this->newLine();
+                    $this->line("  <options=bold>{$label}</>");
+                    $this->line('  <fg=gray>'.implode(', ', $skipped[$reason]).'</>');
+                }
+            }
+        }
     }
 
     /**
