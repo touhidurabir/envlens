@@ -18,6 +18,7 @@ arch('only the console layer touches Illuminate Console or Laravel Prompts')
         'Touhidurabir\EnvLens\Scanning',
         'Touhidurabir\EnvLens\Security',
         'Touhidurabir\EnvLens\Support',
+        'Touhidurabir\EnvLens\Validation',
         'Touhidurabir\EnvLens\Facades',
     ]);
 

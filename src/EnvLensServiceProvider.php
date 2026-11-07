@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Touhidurabir\EnvLens;
 
+use Illuminate\Contracts\Validation\Factory;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
@@ -23,6 +24,7 @@ use Touhidurabir\EnvLens\Scanning\ConfigScanner;
 use Touhidurabir\EnvLens\Scanning\UsageScanner;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 use Touhidurabir\EnvLens\Support\ProductionGuard;
+use Touhidurabir\EnvLens\Validation\EnvValidator;
 
 class EnvLensServiceProvider extends ServiceProvider
 {
@@ -67,6 +69,10 @@ class EnvLensServiceProvider extends ServiceProvider
             $this->stringList('envlens.cleanup.keep'),
             $this->stringList('envlens.generate.skip_defaults'),
         ));
+        $this->app->singleton(EnvValidator::class, fn (Application $app): EnvValidator => new EnvValidator(
+            $app->make(SensitivityDetector::class),
+            $app->make(Factory::class),
+        ));
         $this->app->singleton(EnvLens::class, fn (Application $app): EnvLens => new EnvLens(
             $app->make(UsageScanner::class),
             $app->make(SensitivityDetector::class),
@@ -75,6 +81,7 @@ class EnvLensServiceProvider extends ServiceProvider
             $app->make(EnvAnalyzer::class),
             $app->make(EnvGenerator::class),
             $app->make(EnvSynchronizer::class),
+            $app->make(EnvValidator::class),
         ));
     }
 

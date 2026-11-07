@@ -14,6 +14,7 @@ use Touhidurabir\EnvLens\Mutation\EnvSynchronizer;
 use Touhidurabir\EnvLens\Scanning\UsageIndex;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 use Touhidurabir\EnvLens\Support\ProductionGuard;
+use Touhidurabir\EnvLens\Validation\EnvValidator;
 
 /**
  * @method static EnvFile file(string $path)
@@ -24,6 +25,7 @@ use Touhidurabir\EnvLens\Support\ProductionGuard;
  * @method static EnvAnalyzer analyzer()
  * @method static EnvGenerator generator()
  * @method static EnvSynchronizer synchronizer()
+ * @method static EnvValidator validator()
  *
  * @see EnvLensManager
  */
