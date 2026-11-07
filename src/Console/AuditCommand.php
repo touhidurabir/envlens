@@ -9,15 +9,19 @@ use Touhidurabir\EnvLens\Analysis\Baseline;
 use Touhidurabir\EnvLens\Analysis\Finding;
 use Touhidurabir\EnvLens\Analysis\FindingCode;
 use Touhidurabir\EnvLens\Analysis\Severity;
+use Touhidurabir\EnvLens\Console\Concerns\WritesAnnotations;
 use Touhidurabir\EnvLens\Env\EnvFile;
 use Touhidurabir\EnvLens\Exceptions\InvalidBaseline;
 use Touhidurabir\EnvLens\Scanning\UsageSource;
+use Touhidurabir\EnvLens\Support\CiEnvironment;
 
 use function Termwind\render;
 use function Termwind\renderUsing;
 
 final class AuditCommand extends EnvLensCommand
 {
+    use WritesAnnotations;
+
     /** How many steps "Fix first" lists before pointing at the findings. */
     private const STEPS = 5;
 
@@ -127,6 +131,28 @@ final class AuditCommand extends EnvLensCommand
         return $exit;
     }
 
+    /** Errors first: GitHub shows only the first few of each severity per step. */
+    private function annotations(AuditReport $report): void
+    {
+        if (! CiEnvironment::isGitHubActions()) {
+            return;
+        }
+
+        foreach ([Severity::Error, Severity::Warning] as $severity) {
+            foreach ($report->findings as $finding) {
+                if ($finding->severity() === $severity) {
+                    $this->annotate(
+                        $severity === Severity::Error ? 'error' : 'warning',
+                        $finding->code->value,
+                        $finding->message,
+                        $finding->file !== null ? $this->relativePath($finding->file) : null,
+                        $finding->line,
+                    );
+                }
+            }
+        }
+    }
+
     private function updateBaseline(AuditReport $report, string $path): int
     {
         if ($this->lens()->guard()->isProduction($this->basePath())) {
@@ -180,6 +206,8 @@ final class AuditCommand extends EnvLensCommand
 
         $label = $this->label($file);
         $groups = $this->groups($report);
+
+        $this->annotations($report);
 
         $this->header($report, $title, $suffix);
         $this->verdict($report, $exit, $failOn);
