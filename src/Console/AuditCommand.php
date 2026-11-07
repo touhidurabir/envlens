@@ -60,7 +60,8 @@ final class AuditCommand extends EnvLensCommand
 
         $file = $this->envFile($this->stringOption('file', $this->sourceName()));
         $exampleName = $this->stringOption('example', $this->exampleName());
-        $example = $this->envFile($exampleName, false);
+        // A file you named has to exist; the default example file is allowed not to, and is reported.
+        $example = $this->envFile($exampleName, $this->option('example') !== null);
         $exampleFile = $example->path() !== null && is_file($example->path()) ? $example : null;
 
         // Scanner warnings become scan-warning findings, so they are not printed separately.

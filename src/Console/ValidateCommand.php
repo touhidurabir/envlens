@@ -94,6 +94,10 @@ final class ValidateCommand extends EnvLensCommand
             throw InvalidRulesFile::notLoadable($rulesName, 'file not found');
         }
 
+        if (! $hasRulesFile && ! $this->index(false)->hasConfigUsages()) {
+            return $this->nothingToInfer();
+        }
+
         $asked = ! $hasRulesFile && $this->shouldPrompt();
 
         if ($asked && $this->choosesToGenerate($source)) {
@@ -152,14 +156,13 @@ final class ValidateCommand extends EnvLensCommand
         return $exit;
     }
 
-    /** Only a person at a terminal can answer: not in CI, in production, with --json, or with no terminal (a git hook). */
+    /** Only a person at a terminal can answer: not in CI, in production or with --json. EnvLensCommand handles no terminal. */
     private function shouldPrompt(): bool
     {
         return $this->input->isInteractive()
             && ! $this->wantsJson()
             && ! CiEnvironment::isCi()
-            && ! $this->lens()->guard()->isProduction($this->basePath())
-            && ($this->laravel->runningUnitTests() || stream_isatty(STDIN));
+            && ! $this->lens()->guard()->isProduction($this->basePath());
     }
 
     private function choosesToGenerate(string $source): bool
@@ -190,6 +193,10 @@ final class ValidateCommand extends EnvLensCommand
             $this->error("Refusing to write {$name} in production: it belongs in the repository.");
 
             return 1;
+        }
+
+        if (! $this->index(false)->hasConfigUsages()) {
+            return $this->nothingToInfer();
         }
 
         $inference = $this->lens()->inferrer()->infer($this->index(), $this->exampleFile());
@@ -229,6 +236,14 @@ final class ValidateCommand extends EnvLensCommand
         $this->newLine();
 
         return 0;
+    }
+
+    /** A check that looked at nothing must not pass. */
+    private function nothingToInfer(): int
+    {
+        $this->error('No env() reads were found in config and there is no rules file, so there is nothing to check. Set envlens.scan.config_paths if your config lives elsewhere.');
+
+        return 2;
     }
 
     private function rulesTable(Inference $inference, string $name, bool $dryRun): void

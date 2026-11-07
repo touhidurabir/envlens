@@ -8,6 +8,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Touhidurabir\EnvLens\Env\EnvFile;
 use Touhidurabir\EnvLens\Exceptions\EnvFileNotFound;
 use Touhidurabir\EnvLens\Exceptions\ProductionGuardException;
+use Touhidurabir\EnvLens\Scanning\UsageScanner;
 
 final class ProductionGuard
 {
@@ -17,16 +18,20 @@ final class ProductionGuard
     public function __construct(
         private readonly Application $app,
         private readonly array $environments,
+        private readonly string $sourceFile = '.env',
     ) {}
 
     public function isProduction(string $basePath): bool
     {
-        if ($this->app->environment(...$this->environments)) {
+        // environment() with no arguments returns the name, which is always truthy.
+        if ($this->environments !== [] && $this->app->environment(...$this->environments)) {
             return true;
         }
 
+        $source = UsageScanner::isAbsolute($this->sourceFile) ? $this->sourceFile : rtrim($basePath, '/\\').'/'.$this->sourceFile;
+
         try {
-            $env = EnvFile::fromPath(rtrim($basePath, '/\\').DIRECTORY_SEPARATOR.'.env')->get('APP_ENV');
+            $env = EnvFile::fromPath($source)->get('APP_ENV');
         } catch (EnvFileNotFound) {
             return false;
         }

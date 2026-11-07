@@ -53,6 +53,7 @@ class EnvLensServiceProvider extends ServiceProvider
         $this->app->singleton(ProductionGuard::class, fn (Application $app): ProductionGuard => new ProductionGuard(
             $app,
             $this->stringList('envlens.production_environments'),
+            (string) config('envlens.files.source', '.env'),
         ));
         $this->app->singleton(EnvAnalyzer::class, fn (Application $app): EnvAnalyzer => new EnvAnalyzer(
             $app->make(SensitivityDetector::class),

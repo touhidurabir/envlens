@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
 
 function validateCmd(array $options, int $exit = 0): string
@@ -362,3 +363,26 @@ it('never prints a secret when phpdotenv rejects a file the lexer accepted', fun
 
     expect(validateCmd(['--path' => $path] + $options, 1))->toContain('could not be parsed')->not->toContain('sk_live_marker');
 })->with(['text' => [[]], 'json' => [['--json' => true]]]);
+
+it('exits 2 rather than pass when there are no rules and no config to infer from', function (array $options) {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', "DB_PORT=abc\n");
+    (new Filesystem)->deleteDirectory($path.'/config');
+
+    expect(validateCmd(['--path' => $path] + $options, 2))->toContain('scan.config_paths');
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse();
+})->with([
+    'plain' => [[]],
+    'strict' => [['--strict' => true]],
+    'json' => [['--json' => true]],
+    'init' => [['--init' => true]],
+]);
+
+it('still runs a rules file when there is no config to infer from', function () {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', "A=x\n");
+    file_put_contents($path.'/env.rules.php', "<?php\n\nreturn ['rules' => ['A' => 'integer']];\n");
+    (new Filesystem)->deleteDirectory($path.'/config');
+
+    validateCmd(['--path' => $path], 1);
+});

@@ -191,3 +191,12 @@ it('puts a secret committed in the example file first, without its value', funct
         ->toMatch('/example-secret\s+a sensitive key has a real-looking value/')
         ->not->toContain('sk_live_marker');
 });
+
+it('exits 2 when a named example file does not exist, but only warns about the default one', function () {
+    $path = fixtureProject('basic');
+
+    expect(audit(['--path' => $path, '--example' => '.env.nope'], 2))->toContain('File not found: .env.nope');
+
+    unlink($path.'/.env.example');
+    expect(audit(['--path' => $path, '--fail-on' => 'none']))->toContain('no-example');
+});

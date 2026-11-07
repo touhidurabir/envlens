@@ -35,8 +35,30 @@ it('supports custom environments', function (): void {
     expect((new ProductionGuard($this->app, ['prod', 'live']))->isProduction(tempProject("APP_ENV=live\n")))->toBeTrue();
 });
 
+it('allows outside production', function (): void {
+    (new ProductionGuard($this->app, ['production']))->ensureAllowed(tempProject("APP_ENV=local\n"), 'write');
+
+    expect(true)->toBeTrue();
+});
+
 it('refuses in production', function (): void {
     $guard = new ProductionGuard($this->app, ['production']);
-    $guard->ensureAllowed(tempProject("APP_ENV=local\n"), 'write');
     $guard->ensureAllowed(tempProject("APP_ENV=production\n"), 'write');
 })->throws(ProductionGuardException::class, 'Refusing to write in production.');
+
+it('is not production when no environments are listed', function () {
+    $app = app();
+    $app['env'] = 'local';
+
+    expect((new ProductionGuard($app, []))->isProduction(fixtureProject('basic')))->toBeFalse();
+});
+
+it('reads APP_ENV from the configured source file', function () {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/.env.prod', "APP_ENV=production\n");
+    $app = app();
+    $app['env'] = 'local';
+
+    expect((new ProductionGuard($app, ['production'], '.env.prod'))->isProduction($path))->toBeTrue()
+        ->and((new ProductionGuard($app, ['production']))->isProduction($path))->toBeFalse();
+});

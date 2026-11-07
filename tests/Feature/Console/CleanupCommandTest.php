@@ -206,3 +206,30 @@ it('ends a removal with a DONE badge, a relative backup path and a review hint',
         ->toContain('Backup: storage/envlens/backups/.env.example.')
         ->toContain('git diff .env.example');
 });
+
+it('refuses to remove anything when a file could not be scanned, because it might read the key', function (array $options) {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/app/Broken.php', "<?php\nfunction ( { env('BROKEN_READ');\n");
+    file_put_contents($path.'/.env', "APP_NAME=x\nBROKEN_READ=keep-me\n");
+    $before = file_get_contents($path.'/.env');
+
+    expect(Artisan::call('env:cleanup', ['--path' => $path, '--unused' => true, '--file' => '.env', '--force' => true, '--no-interaction' => true]))->toBe(2);
+    expect(Artisan::output())->toContain('could not be scanned');
+    expect(file_get_contents($path.'/.env'))->toBe($before);
+})->with([[[]]]);
+
+it('still previews when a file could not be scanned', function () {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/app/Broken.php', "<?php\nfunction ( {\n");
+
+    expect(Artisan::call('env:cleanup', ['--path' => $path, '--unused' => true, '--file' => '.env', '--dry-run' => true, '--no-interaction' => true]))->toBe(0);
+});
+
+it('refuses in mirror mode too when no config was scanned', function () {
+    $path = fixtureProject('basic');
+    (new Filesystem)->deleteDirectory($path.'/config');
+    $before = file_get_contents($path.'/.env.example');
+
+    expect(Artisan::call('env:cleanup', ['--path' => $path, '--force' => true, '--no-interaction' => true]))->toBe(2);
+    expect(file_get_contents($path.'/.env.example'))->toBe($before);
+});

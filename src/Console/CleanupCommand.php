@@ -60,13 +60,13 @@ final class CleanupCommand extends EnvLensCommand
         $index = $this->index();
         $sourceName = null;
 
+        if (! $index->hasConfigUsages()) {
+            $this->error('No config files were scanned; refusing to treat every key as unused.');
+
+            return 2;
+        }
+
         if ($unused) {
-            if (! $index->hasConfigUsages()) {
-                $this->error('No config files were scanned; refusing to treat every key as unused.');
-
-                return 2;
-            }
-
             $remove = $sync->unusedKeys($target, $index);
             // Read keys are not news in --unused mode; show only the less obvious reasons.
             $kept = array_values(array_filter(
@@ -90,6 +90,12 @@ final class CleanupCommand extends EnvLensCommand
 
         $interactive = $this->input->isInteractive();
         $preview = $dryRun || (! $interactive && ! $force);
+
+        if (! $preview && $index->warnings() !== []) {
+            $this->error('Some files could not be scanned, so a key only they read could be removed by mistake. Fix them first, or use --dry-run to see the plan.');
+
+            return 2;
+        }
 
         // Termwind writes to stdout until told otherwise; send it through this command's output.
         renderUsing($this->output);
