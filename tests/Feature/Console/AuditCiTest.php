@@ -130,3 +130,83 @@ it('outputs the findings as JSON with the error severity', function () {
     expect(collect($data['data']['findings'])->firstWhere('code', 'undeclared-key'))
         ->toMatchArray(['severity' => 'error', 'key' => 'NEW_PARTNER_SECRET', 'file' => 'config/partner.php', 'line' => 4]);
 });
+
+it('accepts current findings with --update-baseline and then blocks only new ones', function () {
+    $path = ciProject(['LEGACY_ONE', 'LEGACY_TWO']);
+
+    expect(auditCi(['--path' => $path, '--update-baseline' => true]))
+        ->toContain('Recorded 2 findings in envlens-baseline.json')
+        ->toContain('git add envlens-baseline.json');
+
+    expect(auditCi(['--path' => $path]))->toContain('2 accepted by envlens-baseline.json')->toMatch('/PASS/');
+
+    file_put_contents($path.'/config/more.php', "<?php\n\nreturn ['x' => env('BRAND_NEW')];\n");
+
+    $output = auditCi(['--path' => $path], 1);
+    expect($output)->toMatch('/BRAND_NEW\s*\.+\s*config\/more\.php:3/')->not->toMatch('/LEGACY_ONE\s*\.+/');
+});
+
+it('stays valid when a baselined line moves', function () {
+    $path = ciProject(['LEGACY_ONE']);
+    auditCi(['--path' => $path, '--update-baseline' => true]);
+
+    file_put_contents($path.'/config/partner.php', "<?php\n\n\n\nreturn ['x' => env('LEGACY_ONE')];\n");
+
+    auditCi(['--path' => $path]);
+});
+
+it('reports stale entries as info, never failing, until the baseline is updated', function () {
+    $path = ciProject(['LEGACY_ONE']);
+    auditCi(['--path' => $path, '--update-baseline' => true]);
+    unlink($path.'/config/partner.php');
+
+    expect(auditCi(['--path' => $path]))->toMatch('/INFO\s+stale-baseline \(1\)/');
+
+    auditCi(['--path' => $path, '--update-baseline' => true]);
+    expect(auditCi(['--path' => $path]))->not->toContain('stale-baseline');
+});
+
+it('never accepts a secret or a scan failure, and says so', function () {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env.example', "\nSTRIPE_SECRET=sk_live_marker\n", FILE_APPEND);
+    file_put_contents($path.'/config/bad.php', "<?php\nreturn [ not php\n");
+
+    expect(auditCi(['--path' => $path, '--update-baseline' => true]))->toContain('Not recorded: 2 findings');
+    expect(file_get_contents($path.'/envlens-baseline.json'))->not->toContain('sk_live_marker')->not->toContain('STRIPE_SECRET');
+
+    auditCi(['--path' => $path], 1);
+});
+
+it('mentions --update-baseline only when something could be accepted', function () {
+    expect(auditCi(['--path' => ciProject(['LEGACY_ONE'])], 1))->toContain('--update-baseline');
+
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env.example', "\nSTRIPE_SECRET=sk_live_marker\n", FILE_APPEND);
+
+    expect(auditCi(['--path' => $path], 1))->not->toContain('--update-baseline');
+});
+
+it('exits 2 with one line when the baseline is corrupt', function () {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/envlens-baseline.json', "<<<<<<< HEAD\n{}\n");
+
+    expect(trim(auditCi(['--path' => $path], 2)))->toContain('envlens-baseline.json')->not->toContain('Stack trace');
+});
+
+it('refuses --update-baseline without --ci and in production', function () {
+    expect(Artisan::call('env:audit', ['--path' => fixtureProject('basic'), '--update-baseline' => true]))->toBe(2);
+    expect(Artisan::output())->toContain('--update-baseline needs --ci');
+
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', "APP_ENV=production\n");
+
+    expect(auditCi(['--path' => $path, '--update-baseline' => true], 1))->toContain('production');
+    expect(file_exists($path.'/envlens-baseline.json'))->toBeFalse();
+});
+
+it('reports the accepted count in JSON', function () {
+    $path = ciProject(['LEGACY_ONE']);
+    auditCi(['--path' => $path, '--update-baseline' => true]);
+
+    expect(json_decode(auditCi(['--path' => $path, '--json' => true]), true)['data']['baselined'])->toBe(1);
+});

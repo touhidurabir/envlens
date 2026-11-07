@@ -12,10 +12,12 @@ final readonly class AuditReport implements JsonSerializable
     /**
      * @param  array<string, list<EnvUsage>>  $usagesByFile  default values of sensitive keys are masked
      * @param  list<Finding>  $findings
+     * @param  int  $baselined  findings left out because the baseline accepts them
      */
     public function __construct(
         public array $usagesByFile,
         public array $findings,
+        public int $baselined = 0,
     ) {}
 
     public function worst(): ?Severity
@@ -69,6 +71,7 @@ final readonly class AuditReport implements JsonSerializable
             'usages' => $this->usagesByFile,
             'findings' => $this->findings,
             'summary' => $this->summary(),
+            'baselined' => $this->baselined,
         ];
     }
 }

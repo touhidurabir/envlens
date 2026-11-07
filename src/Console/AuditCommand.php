@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Touhidurabir\EnvLens\Console;
 
 use Touhidurabir\EnvLens\Analysis\AuditReport;
+use Touhidurabir\EnvLens\Analysis\Baseline;
 use Touhidurabir\EnvLens\Analysis\Finding;
 use Touhidurabir\EnvLens\Analysis\FindingCode;
 use Touhidurabir\EnvLens\Analysis\Severity;
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Exceptions\InvalidBaseline;
 use Touhidurabir\EnvLens\Scanning\UsageSource;
 
 use function Termwind\render;
@@ -25,6 +27,7 @@ final class AuditCommand extends EnvLensCommand
         {--vendor : Also scan the config of every vendor package and report framework usage in full}
         {--fail-on=error : Exit 1 at this severity or worse (error|warning|info|none)}
         {--ci : Check config and code against the example file alone; needs no .env}
+        {--update-baseline : With --ci, accept current findings in envlens-baseline.json so only new ones block}
         {--json : Output JSON}
         {--path= : Project base path}';
 
@@ -43,6 +46,12 @@ final class AuditCommand extends EnvLensCommand
 
         if ($this->option('ci')) {
             return $this->performCi($failOn, $level);
+        }
+
+        if ($this->option('update-baseline')) {
+            $this->error('--update-baseline needs --ci.');
+
+            return 2;
         }
 
         $file = $this->envFile($this->stringOption('file', $this->sourceName()));
@@ -83,13 +92,85 @@ final class AuditCommand extends EnvLensCommand
         }
 
         $report = $this->lens()->analyzer()->contract($example, $index);
+        $baselinePath = $this->basePath().'/'.Baseline::FILE;
+
+        if ($this->option('update-baseline')) {
+            return $this->updateBaseline($report, $baselinePath);
+        }
+
+        try {
+            $baseline = Baseline::load($baselinePath);
+        } catch (InvalidBaseline $e) {
+            $this->error($e->getMessage());
+
+            return 2;
+        }
+
+        if ($baseline !== null) {
+            $result = $baseline->apply($report->findings);
+            $report = new AuditReport($report->usagesByFile, [...$result['kept'], ...$result['stale']], $result['accepted']);
+        }
+
         $exit = $level !== null && $report->has($level) ? 1 : 0;
 
         if ($this->wantsJson()) {
             return $this->json('env:audit', $report, $exit);
         }
 
-        return $this->renderReport($report, $example, "Checking <fg=cyan>{$this->label($example)}</> as the contract", ' · no .env needed', $exit, $failOn);
+        $this->renderReport($report, $example, "Checking <fg=cyan>{$this->label($example)}</> as the contract", ' · no .env needed', $exit, $failOn);
+
+        if ($exit === 1 && $this->acceptable($report) !== []) {
+            $this->line('  <fg=gray>To accept these for now and block only new ones:</> php artisan env:audit --ci --update-baseline');
+            $this->newLine();
+        }
+
+        return $exit;
+    }
+
+    private function updateBaseline(AuditReport $report, string $path): int
+    {
+        if ($this->lens()->guard()->isProduction($this->basePath())) {
+            $this->error('Refusing to update the baseline in production: it belongs in the repository.');
+
+            return 1;
+        }
+
+        $accepted = $this->acceptable($report);
+        $blocking = array_filter($report->findings, static fn (Finding $f): bool => $f->severity() === Severity::Error && ! Baseline::accepts($f->code));
+
+        Baseline::fromFindings($accepted)->save($path);
+
+        if ($this->wantsJson()) {
+            return $this->json('env:audit', ['baseline' => Baseline::FILE, 'recorded' => count($accepted), 'not_recorded' => count($blocking)]);
+        }
+
+        $count = count($accepted);
+        renderUsing($this->output);
+        $this->newLine();
+        render(<<<HTML
+            <div class="mx-2">
+                <span class="px-1 bg-green text-black font-bold">DONE</span>
+                <span class="ml-1">Recorded {$count} {$this->plural($count, 'finding')} in {$this->relativePath($path)}.</span>
+            </div>
+        HTML);
+
+        if ($blocking !== []) {
+            $codes = implode(', ', array_unique(array_map(static fn (Finding $f): string => $f->code->value, $blocking)));
+            $this->line('  <fg=yellow>Not recorded: '.count($blocking).' '.$this->plural(count($blocking), 'finding')." that must be fixed ({$codes}).</>");
+        }
+
+        $this->line('  <fg=gray>Commit it, so CI blocks only new findings:</> git add '.$this->relativePath($path));
+        $this->newLine();
+
+        return 0;
+    }
+
+    /**
+     * @return list<Finding>
+     */
+    private function acceptable(AuditReport $report): array
+    {
+        return array_values(array_filter($report->findings, static fn (Finding $f): bool => Baseline::accepts($f->code)));
     }
 
     private function renderReport(AuditReport $report, EnvFile $file, string $title, string $suffix, int $exit, string $failOn): int
@@ -102,6 +183,11 @@ final class AuditCommand extends EnvLensCommand
 
         $this->header($report, $title, $suffix);
         $this->verdict($report, $exit, $failOn);
+
+        if ($report->baselined > 0) {
+            $this->line("  <fg=gray>{$report->baselined} accepted by ".Baseline::FILE.'</>');
+            $this->newLine();
+        }
 
         if ($groups === []) {
             $this->line('  <fg=green>No issues found.</>');

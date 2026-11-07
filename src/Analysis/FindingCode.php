@@ -20,13 +20,14 @@ enum FindingCode: string
     case ScanWarning = 'scan-warning';
     case ExampleSecret = 'example-secret';
     case UndeclaredKey = 'undeclared-key';
+    case StaleBaseline = 'stale-baseline';
 
     public function severity(): Severity
     {
         return match ($this) {
             self::EnvOutsideConfig, self::MissingRequired, self::Syntax, self::UndeclaredKey => Severity::Error,
             self::EmptyValue, self::DynamicKey, self::DuplicateKey, self::NoExample, self::ExampleDrift, self::ScanWarning, self::ExampleSecret => Severity::Warning,
-            self::UnusedKey, self::MissingWithDefault, self::MissingOptional => Severity::Info,
+            self::UnusedKey, self::MissingWithDefault, self::MissingOptional, self::StaleBaseline => Severity::Info,
         };
     }
 
@@ -47,6 +48,7 @@ enum FindingCode: string
             self::UnusedKey => 10,
             self::MissingOptional => 11,
             self::MissingWithDefault => 12,
+            self::StaleBaseline => 13,
         };
     }
 
@@ -68,6 +70,7 @@ enum FindingCode: string
             self::UnusedKey => 'defined, but nothing reads it',
             self::MissingOptional => 'not set and read without a default, but not declared required',
             self::MissingWithDefault => 'not set; config falls back to its default (usually fine)',
+            self::StaleBaseline => 'accepted in the baseline, but no longer reported',
         };
     }
 }
