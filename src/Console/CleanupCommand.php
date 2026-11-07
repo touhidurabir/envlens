@@ -71,7 +71,7 @@ final class CleanupCommand extends EnvLensCommand
             // Read keys are not news in --unused mode; show only the less obvious reasons.
             $kept = array_values(array_filter(
                 $target->keys(),
-                static fn (string $k): bool => in_array($sync->keepReason($k, $index), ['dynamic', 'keep'], true),
+                static fn (string $k): bool => in_array($sync->keepReason($k, $index), ['direct', 'dynamic', 'keep'], true),
             ));
         } else {
             $sourceName = $this->stringArgument('source', $this->sourceName());
@@ -259,6 +259,7 @@ final class CleanupCommand extends EnvLensCommand
             $reason = match ($sync->keepReason($key, $index)) {
                 'read' => 'read by '.($index->configPaths($key) !== [] ? implode(', ', array_slice($index->configPaths($key), 0, 2)) : 'code')
                     .($sourceName !== null ? "; missing from {$sourceName}" : ''),
+                'direct' => 'read with getenv() or $_ENV',
                 'dynamic' => 'matches '.$this->dynamicMatch($key, $index),
                 default => 'envlens.cleanup.keep',
             };

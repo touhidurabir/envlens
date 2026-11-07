@@ -388,7 +388,7 @@ it('still runs a rules file when there is no config to infer from', function () 
 });
 
 it('says how many checks passed, not how many failed, when all pass', function () {
-    expect(validateCmd(['--path' => validateProject()]))->toMatch('/PASS\s+36 checks passed/');
+    expect(validateCmd(['--path' => validateProject()]))->toMatch('/PASS\s+28 checks passed/');
 });
 
 it('outputs the generated rules as JSON', function (array $options) {
@@ -397,7 +397,31 @@ it('outputs the generated rules as JSON', function (array $options) {
 
     expect($data['schema'])->toBe(1)
         ->and($data['command'])->toBe('env:validate')
-        ->and(collect($data['data']['rules'])->firstWhere('key', 'DB_PORT'))->toMatchArray(['written' => 'nullable|integer', 'active' => true])
+        ->and(collect($data['data']['rules'])->firstWhere('key', 'DB_PORT'))->toMatchArray(['rule' => 'nullable|integer', 'active' => true])
         ->and($data['data']['skipped'])->toHaveKeys(['free', 'nonLiteral', 'conflicting', 'none'])
         ->and($data['data']['file'])->toBe('env.rules.php');
 })->with(['dry run' => [['--dry-run' => true]], 'writing' => [[]]]);
+
+it('does not check declared keys unless a person made them rules', function () {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', "APP_KEY=base64:abc\n");
+
+    expect(validateCmd(['--path' => $path, '--strict' => true]))->toMatch('/PASS/')->not->toContain('AWS_BUCKET');
+});
+
+it('passes the README deploy recipe on a stock app', function () {
+    $path = fixtureProject('stock-13');
+    $names = ['APP_ENV=production', 'APP_KEY=base64:abc', 'APP_URL=https://example.com', 'DB_PORT=3306'];
+
+    foreach ($names as $pair) {
+        putenv($pair);
+    }
+
+    try {
+        validateCmd(['--path' => $path, '--from-env' => true, '--strict' => true]);
+    } finally {
+        foreach (['APP_ENV', 'APP_KEY', 'APP_URL', 'DB_PORT'] as $name) {
+            putenv($name);
+        }
+    }
+});

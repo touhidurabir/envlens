@@ -45,7 +45,7 @@ final class RulesFileWriter
     private static function line(InferredRule $rule): string
     {
         $location = $rule->file !== null ? " ({$rule->file}:{$rule->line})" : '';
-        $assignment = var_export($rule->key, true).' => '.var_export($rule->written, true).',';
+        $assignment = var_export($rule->key, true).' => '.var_export($rule->rule, true).',';
 
         return '        '.($rule->active ? $assignment : '// '.self::comment($assignment)).' // '.self::comment($rule->assumption.$location);
     }

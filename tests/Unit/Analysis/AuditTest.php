@@ -166,3 +166,11 @@ it('does not check the env file itself for example secrets', function () {
 
     expect(findingsOf($r, FindingCode::ExampleSecret))->toBe([]);
 });
+
+it('does not call a key read directly unused, and finds no fault with how it is read', function () {
+    $index = new UsageIndex([], [], [], ['VIA_GETENV']);
+    $report = analyzer()->audit(EnvFile::fromString("VIA_GETENV=1\n"), null, $index);
+
+    expect(findingsOf($report, FindingCode::UnusedKey))->toBe([])
+        ->and(findingsOf($report, FindingCode::EnvOutsideConfig))->toBe([]);
+});

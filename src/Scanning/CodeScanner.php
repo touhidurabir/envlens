@@ -16,16 +16,17 @@ final class CodeScanner
     /**
      * @param  list<string>  $paths  directories or files, relative to $basePath or absolute
      * @param  list<string>  $exclude  relative path prefixes to skip
-     * @return array{usages: list<EnvUsage>, warnings: list<string>}
+     * @return array{usages: list<EnvUsage>, warnings: list<string>, direct: list<string>}
      */
     public function scan(string $basePath, array $paths, array $exclude): array
     {
         $usages = [];
         $warnings = [];
+        $direct = [];
 
         $base = realpath($basePath);
         if ($base === false) {
-            return ['usages' => $usages, 'warnings' => $warnings];
+            return ['usages' => $usages, 'warnings' => $warnings, 'direct' => $direct];
         }
         $base = rtrim(str_replace('\\', '/', $base), '/');
         $exclude = array_map(fn (string $e) => trim(str_replace('\\', '/', $e), '/'), $exclude);
@@ -75,6 +76,7 @@ final class CodeScanner
                 }
 
                 EnvCallExtractor::connectParents($stmts);
+                array_push($direct, ...EnvCallExtractor::directReads($stmts));
 
                 foreach ($finder->find($stmts, fn (Node $n) => $n instanceof FuncCall || $n instanceof StaticCall) as $call) {
                     /** @var FuncCall|StaticCall $call */
@@ -90,7 +92,7 @@ final class CodeScanner
             }
         }
 
-        return ['usages' => $usages, 'warnings' => $warnings];
+        return ['usages' => $usages, 'warnings' => $warnings, 'direct' => $direct];
     }
 
     /**

@@ -344,10 +344,11 @@ php artisan env:generate [target] [--source=] [--with-values] [--no-defaults] [-
 ```
 
 Creates `target` (default `files.example`) from the structure of `source` (default `files.source`) with values
-blanked: comments, order and blank lines are kept, but a commented-out assignment such as `#MAIL_PASSWORD=...`
-keeps only `#MAIL_PASSWORD=`. Blank keys get the literal default from config unless `--no-defaults` (never for
+blanked: comments, order and blank lines are kept, but a commented-out assignment such as `#MAIL_PASSWORD=...` or
+`## MAIL_PASSWORD=...` keeps only the key, and a secret inside a comment's words (`# Old: API_SECRET=...`) is blanked too. Blank keys get the literal default from config unless `--no-defaults` (never for
 keys in `generate.skip_defaults`); sensitive keys are always blank.
-`--with-values` keeps non-sensitive values (refused in production). Unparseable source lines are dropped.
+`--with-values` keeps non-sensitive values (refused in production). Unparseable source lines are dropped, and an
+unterminated quote drops everything after it; the summary lists every line lost.
 If the target exists you are asked to confirm (default No); non-interactively it is refused without `--force`.
 `--dry-run` shows everything and writes nothing (allowed in production). It never overwrites the app's own env file
 (`files.source`), even with `--force`, since a generated file has no real values; it can create one that doesn't
@@ -448,12 +449,14 @@ Default (mirror) mode removes from `target` the keys that are absent from `sourc
 that nothing in config or code reads (the `source` argument is ignored; name the file with `--file`, for example
 `env:cleanup --unused --file=.env`). In **both** modes a key is always kept when:
 
-- config or code reads it (in mirror mode such a key belongs in the source; cleanup points at `env:sync`),
+- config or code reads it (in mirror mode such a key belongs in the source; cleanup points at `env:sync`), including
+  through `getenv()`, `$_ENV` or `$_SERVER`,
 - a runtime-built `env("PREFIX_{$x}")` call matches it, or
 - it matches `cleanup.keep`.
 
-Cleanup warns about fully dynamic `env()` calls (any key could be read there). If no config file was scanned,
-`--unused` refuses (exit 2) rather than treat every key as unused. Interactively you get a multiselect (all ticked,
+Cleanup warns about fully dynamic `env()` calls (any key could be read there). If no config file was scanned, it
+refuses (exit 2) rather than treat every key as unused, and if any file couldn't be scanned, it refuses to write (exit 2),
+since that file might read the key; `--dry-run` still shows the plan. Interactively you get a multiselect (all ticked,
 labels say which keys have a value) and a confirmation that defaults to No; declining prints `Aborted.` and exits 1.
 **Non-interactive runs without `--force` are a dry run.** In production the app's own env file (`files.source`) is
 never written, even with `--force`.
@@ -501,10 +504,10 @@ are acceptable: is `DB_PORT` a number, is `APP_URL` a URL, is `APP_DEBUG` off in
 | `env('APP_URL', 'http://localhost')` | `nullable\|url` | the default is a URL |
 | `env('MAIL_FROM', 'hi@example.com')` | `nullable\|email` | the default is an email address |
 | `env('APP_KEY')` | `required` | Laravel cannot encrypt without it |
-| `env('X')`, with `X` [declared required](#required-keys) | `present` | the key should exist, though it may be blank |
 
 A free-text default (`env('LOG_CHANNEL', 'stack')`), a non-literal one (`env('A', env('B'))`) or defaults that disagree
-give no check. **Inferred checks are guesses, so they warn and exit 0.** `env('X', false)` might one day hold a
+give no check, and neither does `env('X')` with no default, because many such keys are truly optional: `env:audit`
+reports the [required](#required-keys) ones that are missing. **Inferred checks are guesses, so they warn and exit 0.** `env('X', false)` might one day hold a
 certificate instead of a boolean, and a wrong guess shouldn't block a deploy. Pass `--strict` to fail on them anyway.
 
 ```
@@ -553,7 +556,8 @@ run the inferred checks.
   No rule: no default and not declared .................................... 31
 ```
 
-Guesses about required keys are written commented out, because many are truly optional; uncomment the ones that aren't.
+Guesses about required keys are written commented out and aren't checked, because many are truly optional; uncomment
+the ones that aren't.
 `-v` lists the keys that got no rule, and `--dry-run` shows the table and writes nothing. `--init` never overwrites an
 existing file, is refused in production and never writes a sensitive default. **Once a rule is in the file, it fails the
 command**: reviewing the file is what turns a guess into something that blocks.
@@ -588,6 +592,7 @@ then the running app. Other details:
 - **Values:** `--file=` reads a file (default `files.source`), and `${VAR}` resolves from that same file. `--from-env`
   reads the process environment instead, for values your platform or CI injects.
 - **All failures** are reported, not just the first.
+- **A check that looks at nothing doesn't pass.** With no rules file and no `env()` reads found in config, it exits 2.
 - **Secrets stay hidden.** For a sensitive key, only the failed rule's name is printed, in every output. Messages are
   dropped, including your custom ones, because `:input` or a closure can repeat the value.
 - **Mistakes in the file are usage errors** (exit 2) with one line of explanation: an unknown rule, even on a key that
@@ -737,6 +742,8 @@ install it as a regular dependency to run it on the server itself.
 - **A weak password that looks like filler.** Values such as `secret`, `password` or anything containing those words count
   as placeholders, so example files don't fail on their filler values.
 - **Keys built at runtime.** `env("{$p}_TOKEN")` can't be checked statically, so it's reported as `dynamic-key`.
+- **Keys read outside `env()`.** `getenv()`, `$_ENV` and `$_SERVER` reads count as used, so cleanup keeps those keys, but
+  `undeclared-key` only looks at `env()`.
 - **A value that's valid but wrong.** A correctly formatted URL can still point at the wrong server.
 
 ## Configuration
@@ -749,9 +756,9 @@ install it as a regular dependency to run it on the server itself.
 | `files.example` | `.env.example` | Default example file for every command (`target` argument, `--example`). |
 | `required` | `[]` | Globs of keys you declare required, in addition to the keys listed in the example file (see [Required keys](#required-keys)). |
 | `optional` | `POSTMARK_API_KEY`, `RESEND_API_KEY` | Globs of keys that are never required, even when the example file lists them, and that `env:audit --ci` doesn't ask the example to list. `required` beats this. |
-| `sensitive.keys` | `['APP_KEY']` | Exact key names treated as sensitive. |
-| `sensitive.patterns` | `*_KEY`, `*_SECRET`, `*_SECRET_*`, `*_PASSWORD`, `*_PASS`, `*_TOKEN`, `*_PRIVATE*`, `*_DSN`, `*_CREDENTIALS*`, `*_SALT`, `*_PASSPHRASE`, `*_PWD`, `*_AUTH`, `*_WEBHOOK*` | Case-insensitive globs for sensitive keys. A value that is a connection string with credentials (`scheme://user:password@host`) also makes its key sensitive. |
-| `sensitive.except` | `*_PUBLIC_KEY`, `VITE_*_KEY` | Globs exempted from the patterns above. |
+| `sensitive.keys` | `APP_KEY`, `PASSWORD`, `SECRET`, `TOKEN`, `BEARER` | Exact key names treated as sensitive. |
+| `sensitive.patterns` | `*_KEY`, `*_SECRET`, `*_SECRET_*`, `*_PASSWORD`, `*_PASS`, `*_TOKEN`, `*_PRIVATE*`, `*_DSN`, `*_CREDENTIALS*`, `*_SALT`, `*_PASSPHRASE`, `*_PWD`, `*_AUTH`, `*_WEBHOOK*`, `*_PASSWD`, `*APIKEY`, `*_PASSWORD_*`, `*_TOKEN_*`, `*_KEY_*`, `*_BEARER`, `*AUTH_HEADER*` | Case-insensitive globs for sensitive keys. A value that is a connection string with credentials (`scheme://user:password@host`) also makes its key sensitive. |
+| `sensitive.except` | `*_PUBLIC_KEY`, `VITE_*_KEY`, `AUTH_PASSWORD_*`, `*_TOKEN_TABLE`, `*_TOKEN_TTL`, `*_TOKEN_LIFETIME`, `*_KEY_PREFIX` | Globs exempted from the patterns above. |
 | `scan.config_paths` | `['config']` | Config directories to scan, relative to the project base path or absolute. |
 | `scan.code_paths` | `app`, `routes`, `database`, `resources/views`, `bootstrap` | Code directories scanned for `env()` calls, relative or absolute. |
 | `scan.exclude` | `vendor`, `storage`, `node_modules`, `bootstrap/cache` | Paths skipped while scanning. |
@@ -761,7 +768,7 @@ install it as a regular dependency to run it on the server itself.
 | `write.backup_path` | `storage/envlens/backups` | Backup directory, relative to the project base path or absolute. |
 | `write.group_by_prefix` | `true` | Insert new keys after the last key sharing their prefix (`MAIL_*` next to `MAIL_*`); otherwise append at the end. |
 | `write.header_comment` | `true` | Put a `# Added by envlens ...` comment above appended keys. |
-| `write.remove_attached_comments` | `true` | When removing a key, also remove the comment lines directly above it (no blank line between). |
+| `write.remove_attached_comments` | `true` | When removing a key, also remove the comment lines directly above it (no blank line between). A comment that starts a block and runs into more than one key is a section heading, and stays until the last of those keys goes. |
 | `generate.skip_defaults` | `APP_ENV`, `APP_DEBUG` | Keys that `env:generate` and `env:sync` never fill with a config default (so an example never says `APP_ENV=production`). |
 | `production_environments` | `['production']` | Environment names treated as production by the guard. |
 | `ci.allow_values` | `[]` | Globs of keys whose value in the example file is intended, so it isn't reported as `example-secret`. |

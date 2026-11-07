@@ -21,7 +21,7 @@ function writtenRules(array $rules): RuleSet
 
 function inferred(string $key, string $assumption = 'because', bool $active = true, string $rule = 'nullable|integer'): InferredRule
 {
-    return new InferredRule($key, $active ? $rule : 'present', $active ? $rule : 'required', $active, $assumption, 'config/a.php', 5);
+    return new InferredRule($key, $active ? $rule : 'required', $active, $assumption, 'config/a.php', 5);
 }
 
 it('writes a file that loads, with active rules sorted by key', function () {

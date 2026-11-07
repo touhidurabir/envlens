@@ -110,3 +110,9 @@ it('does not write a config default that holds credentials', function () {
     expect($result->file->toString())->toBe("DB_URL=\n")
         ->and($result->changes[0]->reason)->toBe(ChangeReason::Secret);
 });
+
+it('counts every line an unterminated quote swallows', function () {
+    $result = generated("A=1\nB=\"open\nC=3\nD=4\n");
+
+    expect($result->droppedAt)->toBe([2, 3, 4]);
+});

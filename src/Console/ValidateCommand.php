@@ -118,7 +118,7 @@ final class ValidateCommand extends EnvLensCommand
 
         if ($set->infer) {
             foreach ($this->lens()->inferrer()->infer($this->index(), $this->exampleFile())->rules as $rule) {
-                if (! isset($rules[$rule->key])) {
+                if ($rule->active && ! isset($rules[$rule->key])) {
                     $rules[$rule->key] = $rule->rule;
                     $inferred[] = $rule->key;
                 }
@@ -268,7 +268,7 @@ final class ValidateCommand extends EnvLensCommand
 
         $this->table(['Key', 'Rule', 'Assumption', 'Read at'], array_map(static fn (InferredRule $r): array => [
             $r->key,
-            $r->written.($r->active ? '' : ' (commented out)'),
+            $r->rule.($r->active ? '' : ' (commented out)'),
             $r->assumption,
             $r->file !== null ? "{$r->file}:{$r->line}" : '',
         ], $rules));

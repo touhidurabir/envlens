@@ -43,7 +43,6 @@ it('infers a type from a literal default', function (string $default, string $ru
     $inferred = ruleFor(inferrer()->infer(new UsageIndex([read('K', $default)]), null), 'K');
 
     expect($inferred->rule)->toBe($rule)
-        ->and($inferred->written)->toBe($rule)
         ->and($inferred->active)->toBeTrue()
         ->and($inferred->assumption)->toBe($assumption)
         ->and($inferred->file)->toBe('config/a.php')
@@ -96,8 +95,7 @@ it('gives no rule to a key with no default that is not declared', function () {
 it('suggests required for a declared key with no default, commented out', function () {
     $inferred = ruleFor(inferrer()->infer(new UsageIndex([read('K', null, DefaultKind::None)]), EnvFile::fromString("K=\n")), 'K');
 
-    expect($inferred->rule)->toBe('present')
-        ->and($inferred->written)->toBe('required')
+    expect($inferred->rule)->toBe('required')
         ->and($inferred->active)->toBeFalse()
         ->and($inferred->assumption)->toBe('no default, and declared required; may be optional');
 });
@@ -106,7 +104,6 @@ it('always requires APP_KEY when the app reads it', function () {
     $inferred = ruleFor(inferrer()->infer(new UsageIndex([read('APP_KEY', null, DefaultKind::None)]), null), 'APP_KEY');
 
     expect($inferred->rule)->toBe('required')
-        ->and($inferred->written)->toBe('required')
         ->and($inferred->active)->toBeTrue()
         ->and($inferred->assumption)->toBe('Laravel cannot encrypt without it');
 });
@@ -144,7 +141,7 @@ it('infers from a stock Laravel app, and its own example passes', function (stri
 
     $rules = [];
     foreach ($inference->rules as $rule) {
-        if ($rule->key !== 'APP_KEY') {
+        if ($rule->active && $rule->key !== 'APP_KEY') {
             $rules[$rule->key] = $rule->rule;
         }
     }
@@ -153,8 +150,8 @@ it('infers from a stock Laravel app, and its own example passes', function (stri
 
     expect($report->failures)->toBe([]);
 })->with([
-    'stock-12' => ['stock-12', ['nullable|boolean' => 9, 'nullable|email' => 1, 'nullable|integer' => 15, 'nullable|url' => 2, 'present' => 8, 'required' => 1]],
-    'stock-13' => ['stock-13', ['nullable|boolean' => 9, 'nullable|email' => 1, 'nullable|integer' => 15, 'nullable|url' => 2, 'present' => 8, 'required' => 1]],
+    'stock-12' => ['stock-12', ['nullable|boolean' => 9, 'nullable|email' => 1, 'nullable|integer' => 15, 'nullable|url' => 2, 'required' => 9]],
+    'stock-13' => ['stock-13', ['nullable|boolean' => 9, 'nullable|email' => 1, 'nullable|integer' => 15, 'nullable|url' => 2, 'required' => 9]],
 ]);
 
 it('infers numeric from a float default, even a whole one', function () {

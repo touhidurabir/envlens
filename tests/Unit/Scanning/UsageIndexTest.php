@@ -123,3 +123,21 @@ it('knows whether Laravel framework config reads a key', function () {
         ->and($index->isReadByFramework('B'))->toBeFalse()
         ->and($index->isReadByFramework('C'))->toBeFalse();
 });
+
+it('finds getenv() and superglobal reads, in code and config', function () {
+    $base = sys_get_temp_dir().'/envlens-direct-'.uniqid();
+    mkdir($base.'/app', 0777, true);
+    mkdir($base.'/config', 0777, true);
+    $GLOBALS['envLensTempDirs'][] = $base;
+    file_put_contents($base.'/app/A.php', "<?php\ngetenv('VIA_GETENV');\n\\getenv('VIA_ROOT');\n\$_ENV['VIA_ENV'];\n\$_SERVER['VIA_SERVER'];\ngetenv(\$dynamic);\n\$_ENV[\$dynamic];\n\$obj->getenv('NOT_THIS');\n");
+    file_put_contents($base.'/config/a.php', "<?php\nreturn ['x' => getenv('VIA_CONFIG')];\n");
+
+    $scan = ['config_paths' => ['config'], 'code_paths' => ['app'], 'exclude' => []];
+    $index = (new UsageScanner(new ConfigScanner, new CodeScanner, $scan))->scan($base, false);
+
+    foreach (['VIA_GETENV', 'VIA_ROOT', 'VIA_ENV', 'VIA_SERVER', 'VIA_CONFIG'] as $key) {
+        expect($index->isReadDirectly($key))->toBeTrue();
+    }
+
+    expect($index->isReadDirectly('NOT_THIS'))->toBeFalse()->and($index->isUsed('VIA_GETENV'))->toBeFalse();
+});

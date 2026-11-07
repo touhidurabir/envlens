@@ -233,3 +233,15 @@ it('refuses in mirror mode too when no config was scanned', function () {
     expect(Artisan::call('env:cleanup', ['--path' => $path, '--force' => true, '--no-interaction' => true]))->toBe(2);
     expect(file_get_contents($path.'/.env.example'))->toBe($before);
 });
+
+it('keeps a key read only through getenv or $_ENV', function () {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/app/Direct.php', "<?php\ngetenv('VIA_GETENV');\n\$_ENV['VIA_ENV'];\n");
+    file_put_contents($path.'/.env', "APP_NAME=x\nVIA_GETENV=1\nVIA_ENV=2\n");
+
+    expect(Artisan::call('env:cleanup', ['--path' => $path, '--unused' => true, '--file' => '.env', '--force' => true, '--no-interaction' => true]))->toBe(0);
+
+    $output = Artisan::output();
+    expect(file_get_contents($path.'/.env'))->toContain('VIA_GETENV=1')->toContain('VIA_ENV=2');
+    expect($output)->toContain('getenv() or $_ENV');
+});

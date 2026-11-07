@@ -7,6 +7,7 @@ namespace Touhidurabir\EnvLens\Scanning;
 use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ArrayDimFetch;
 use PhpParser\Node\Expr\BinaryOp\Coalesce;
 use PhpParser\Node\Expr\BinaryOp\Concat;
 use PhpParser\Node\Expr\ConstFetch;
@@ -14,6 +15,7 @@ use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\UnaryMinus;
+use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\InterpolatedStringPart;
 use PhpParser\Node\Name;
@@ -21,6 +23,7 @@ use PhpParser\Node\Scalar\Float_;
 use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\ParentConnectingVisitor;
 
@@ -39,6 +42,36 @@ final class EnvCallExtractor
         $traverser = new NodeTraverser;
         $traverser->addVisitor(new ParentConnectingVisitor);
         $traverser->traverse($stmts);
+    }
+
+    /**
+     * Keys read with getenv(), $_ENV or $_SERVER. These aren't env() calls and can't be judged like them,
+     * but the app still reads the key, so it must not look unused.
+     *
+     * @param  array<Node>  $stmts
+     * @return list<string>
+     */
+    public static function directReads(array $stmts): array
+    {
+        $keys = [];
+
+        foreach ((new NodeFinder)->find($stmts, static fn (Node $n): bool => $n instanceof FuncCall || $n instanceof ArrayDimFetch) as $node) {
+            if ($node instanceof ArrayDimFetch) {
+                $isSuperglobal = $node->var instanceof Variable && in_array($node->var->name, ['_ENV', '_SERVER'], true);
+                $key = $isSuperglobal ? $node->dim : null;
+            } else {
+                /** @var FuncCall $node */
+                $isGetenv = $node->name instanceof Name && strtolower($node->name->toString()) === 'getenv';
+                $first = $isGetenv ? ($node->args[0] ?? null) : null;
+                $key = $first instanceof Arg ? $first->value : null;
+            }
+
+            if ($key instanceof String_) {
+                $keys[] = $key->value;
+            }
+        }
+
+        return array_values(array_unique($keys));
     }
 
     /**

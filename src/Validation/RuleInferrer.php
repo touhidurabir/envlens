@@ -38,13 +38,13 @@ final class RuleInferrer
             $first = $usages[0] ?? null;
 
             if ($key === 'APP_KEY') {
-                $rules[] = new InferredRule($key, 'required', 'required', true, 'Laravel cannot encrypt without it', $first?->file, $first?->line);
+                $rules[] = new InferredRule($key, 'required', true, 'Laravel cannot encrypt without it', $first?->file, $first?->line);
 
                 continue;
             }
 
             if ($this->analyzer->isRequired($key, $index, $example)) {
-                $rules[] = new InferredRule($key, 'present', 'required', false, 'no default, and declared required; may be optional', $first?->file, $first?->line);
+                $rules[] = new InferredRule($key, 'required', false, 'no default, and declared required; may be optional', $first?->file, $first?->line);
 
                 continue;
             }
@@ -85,7 +85,7 @@ final class RuleInferrer
         };
         $rule = "nullable|{$type}";
 
-        return new InferredRule($key, $rule, $rule, true, "{$shown} {$meaning}", $usage->file, $usage->line);
+        return new InferredRule($key, $rule, true, "{$shown} {$meaning}", $usage->file, $usage->line);
     }
 
     private static function typeOf(string $default): string

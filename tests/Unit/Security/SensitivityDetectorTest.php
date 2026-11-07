@@ -76,3 +76,16 @@ it('recognises more filler values', function (string $value) {
 it('still flags values that only contain the letter x', function () {
     expect(defaultDetector()->isPlaceholder('sk_live_ax9'))->toBeFalse();
 });
+
+it('flags secret names the first defaults missed', function (string $key) {
+    expect(defaultDetector()->isSensitive($key))->toBeTrue();
+})->with([
+    'PASSWORD', 'SECRET', 'TOKEN', 'BEARER', 'password', 'API_TOKEN_2', 'DB_PASSWORD_READ', 'DB_PASSWD', 'OPENAI_APIKEY',
+    'STRIPE_KEY_LIVE', 'AWS_ACCESS_KEY_ID', 'API_BEARER', 'AUTH_HEADER', 'X_AUTH_HEADER_VALUE',
+]);
+
+it('does not flag stock Laravel settings that only look like secrets', function (string $key) {
+    expect(defaultDetector()->isSensitive($key))->toBeFalse();
+})->with([
+    'AUTH_PASSWORD_BROKER', 'AUTH_PASSWORD_RESET_TOKEN_TABLE', 'AUTH_PASSWORD_TIMEOUT', 'SANCTUM_TOKEN_TTL', 'JWT_TOKEN_LIFETIME', 'CACHE_KEY_PREFIX', 'SESSION_DRIVER',
+]);

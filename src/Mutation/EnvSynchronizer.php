@@ -97,13 +97,15 @@ final class EnvSynchronizer
     }
 
     /**
-     * Why cleanup must keep a key, or null when it may go: `read` (config or code reads it),
-     * `dynamic` (a runtime-built env() key matches it) or `keep` (envlens.cleanup.keep).
+     * Why cleanup must keep a key, or null when it may go: `read` (config or code reads it), `direct`
+     * (read with getenv(), $_ENV or $_SERVER), `dynamic` (a runtime-built env() key matches it) or
+     * `keep` (envlens.cleanup.keep).
      */
     public function keepReason(string $key, UsageIndex $index): ?string
     {
         return match (true) {
             $index->isUsed($key) => 'read',
+            $index->isReadDirectly($key) => 'direct',
             $index->isProtectedByDynamic($key) => 'dynamic',
             Glob::matchesAny($this->keepPatterns, $key) => 'keep',
             default => null,

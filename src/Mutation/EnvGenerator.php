@@ -44,7 +44,9 @@ final class EnvGenerator
 
         foreach ($source->lines() as $i => $line) {
             if ($line->type === EnvEntryType::Invalid) {
-                $droppedAt[] = $line->line;
+                // An unterminated quote swallows everything after it, so count every line it takes.
+                $count = max(1, count(preg_split('/\R/', rtrim($line->raw, "\r\n")) ?: []));
+                array_push($droppedAt, ...range($line->line, $line->line + $count - 1));
 
                 continue;
             }

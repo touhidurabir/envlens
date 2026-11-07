@@ -22,6 +22,7 @@ final class UsageScanner
     {
         $usages = [];
         $warnings = [];
+        $direct = [];
         $base = rtrim($basePath, '/\\');
         $configFiles = 0;
         $configPaths = $this->list('config_paths');
@@ -31,6 +32,7 @@ final class UsageScanner
             $configFiles += $result['files'];
             array_push($usages, ...$result['usages']);
             array_push($warnings, ...$result['warnings']);
+            array_push($direct, ...$result['direct']);
         }
 
         if ($configFiles === 0) {
@@ -40,6 +42,7 @@ final class UsageScanner
         $result = $this->code->scan($basePath, $this->list('code_paths'), $this->list('exclude'));
         array_push($usages, ...$result['usages']);
         array_push($warnings, ...$result['warnings']);
+        array_push($direct, ...$result['direct']);
 
         $framework = $base.'/vendor/'.self::FRAMEWORK_PACKAGE.'/config';
         $vendorDirs = is_dir($framework) ? [self::FRAMEWORK_PACKAGE => $framework] : [];
@@ -58,11 +61,12 @@ final class UsageScanner
             $result = $this->config->scan($basePath, $dir, UsageSource::Vendor, $package);
             array_push($usages, ...$result['usages']);
             array_push($warnings, ...$result['warnings']);
+            array_push($direct, ...$result['direct']);
         }
 
         // Laravel's own config is always scanned so framework keys never look unused,
         // but it is only reported in full when vendor scanning was asked for.
-        return new UsageIndex($usages, $warnings, $includeVendor ? [] : [self::FRAMEWORK_PACKAGE]);
+        return new UsageIndex($usages, $warnings, $includeVendor ? [] : [self::FRAMEWORK_PACKAGE], array_values(array_unique($direct)));
     }
 
     public static function isAbsolute(string $path): bool

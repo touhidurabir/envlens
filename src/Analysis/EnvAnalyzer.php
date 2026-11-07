@@ -637,7 +637,7 @@ final class EnvAnalyzer
 
     private function statusInFile(string $key, UsageIndex $index): KeyStatus
     {
-        if ($index->isUsed($key) || $index->isProtectedByDynamic($key)) {
+        if ($index->isUsed($key) || $index->isProtectedByDynamic($key) || $index->isReadDirectly($key)) {
             return KeyStatus::Used;
         }
 
@@ -663,6 +663,10 @@ final class EnvAnalyzer
 
         if ($sources === [] && $index->isProtectedByDynamic($key)) {
             $sources[] = 'dynamic';
+        }
+
+        if ($sources === [] && $index->isReadDirectly($key)) {
+            $sources[] = 'code';
         }
 
         return array_values(array_unique($sources));

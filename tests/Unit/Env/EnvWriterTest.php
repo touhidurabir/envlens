@@ -267,3 +267,30 @@ it('never overwrites a backup made in the same second', function (): void {
 
     (new Filesystem)->deleteDirectory($dir);
 });
+
+it('keeps a comment that heads other keys when removing the first of them', function (): void {
+    $file = EnvFile::fromString("# Mail\nMAIL_A=1\nMAIL_B=2\n\nOTHER=3\n");
+    $plan = new Plan([new Change(ChangeType::Remove, 'MAIL_A')]);
+
+    expect(writer()->apply($file, $plan)->toString())->toBe("# Mail\nMAIL_B=2\n\nOTHER=3\n");
+});
+
+it('removes a heading comment once every key under it has gone', function (): void {
+    $file = EnvFile::fromString("# Mail\nMAIL_A=1\nMAIL_B=2\n\nOTHER=3\n");
+    $change = fn (string $k) => new Change(ChangeType::Remove, $k);
+
+    expect(writer()->apply($file, new Plan([$change('MAIL_A'), $change('MAIL_B')]))->toString())->toBe("\nOTHER=3\n")
+        ->and(writer()->apply($file, new Plan([$change('MAIL_B'), $change('MAIL_A')]))->toString())->toBe("\nOTHER=3\n");
+});
+
+it('still removes a comment about one key in the middle of a block', function (): void {
+    $plan = new Plan([new Change(ChangeType::Remove, 'B')]);
+
+    expect(writer()->apply(EnvFile::fromString("A=1\n# about b\nB=2\nC=3\n"), $plan)->toString())->toBe("A=1\nC=3\n");
+});
+
+it('keeps a section heading after a blank line', function (): void {
+    $plan = new Plan([new Change(ChangeType::Remove, 'B')]);
+
+    expect(writer()->apply(EnvFile::fromString("A=1\n\n# Section\nB=2\nC=3\n"), $plan)->toString())->toBe("A=1\n\n# Section\nC=3\n");
+});
