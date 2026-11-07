@@ -117,3 +117,16 @@ it('recognises Env::getOrFail including the fully qualified form', function () {
         ->and(usageFor($usages, 'OR_FAIL_FQ')->configPath)->toBe('extra.b')
         ->and(usageFor($usages, 'XY')->dynamicPattern)->toBeNull();
 });
+
+it('sees a fallback after the call as a default in config', function () {
+    $base = sys_get_temp_dir().'/envlens-cfg-'.uniqid();
+    mkdir($base.'/config', 0777, true);
+    $GLOBALS['envLensTempDirs'][] = $base;
+    file_put_contents($base.'/config/a.php', "<?php\nreturn ['x' => env('X') ?? 'y', 'z' => env('Z')];\n");
+
+    $usages = collect((new ConfigScanner)->scan($base, $base.'/config')['usages'])->keyBy('key');
+
+    expect($usages['X']->default)->toBe(DefaultKind::Literal)
+        ->and($usages['X']->defaultValue)->toBe('y')
+        ->and($usages['Z']->default)->toBe(DefaultKind::None);
+});

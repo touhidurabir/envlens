@@ -156,3 +156,9 @@ it('infers from a stock Laravel app, and its own example passes', function (stri
     'stock-12' => ['stock-12', ['nullable|boolean' => 9, 'nullable|email' => 1, 'nullable|integer' => 15, 'nullable|url' => 2, 'present' => 8, 'required' => 1]],
     'stock-13' => ['stock-13', ['nullable|boolean' => 9, 'nullable|email' => 1, 'nullable|integer' => 15, 'nullable|url' => 2, 'present' => 8, 'required' => 1]],
 ]);
+
+it('infers numeric from a float default, even a whole one', function () {
+    $inferred = ruleFor(inferrer()->infer(new UsageIndex([read('RATE', '1.0')]), null), 'RATE');
+
+    expect($inferred->rule)->toBe('nullable|numeric');
+});

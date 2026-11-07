@@ -210,3 +210,26 @@ it('reports the accepted count in JSON', function () {
 
     expect(json_decode(auditCi(['--path' => $path, '--json' => true]), true)['data']['baselined'])->toBe(1);
 });
+
+it('does not call a key undeclared when config gives it a fallback', function () {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/config/partner.php', "<?php\n\nreturn ['a' => env('FALLBACK_ONE') ?? 'x', 'b' => env('FALLBACK_TWO') ?: 'y'];\n");
+
+    auditCi(['--path' => $path]);
+});
+
+it('does not fail on env() mentioned in a Blade comment or text', function () {
+    $path = fixtureProject('stock-13');
+    mkdir($path.'/resources/views', 0777, true);
+    file_put_contents($path.'/resources/views/a.blade.php', "{{-- env('X') --}}\n<p>Set env('Y')</p>\n");
+
+    auditCi(['--path' => $path]);
+});
+
+it('fails on a real env() call in Blade', function () {
+    $path = fixtureProject('stock-13');
+    mkdir($path.'/resources/views', 0777, true);
+    file_put_contents($path.'/resources/views/a.blade.php', "\n{{ \\env('X') }}\n");
+
+    expect(auditCi(['--path' => $path], 1))->toMatch('/X\s*\.+\s*resources\/views\/a\.blade\.php:2/');
+});

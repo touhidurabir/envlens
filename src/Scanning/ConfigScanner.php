@@ -55,6 +55,8 @@ final class ConfigScanner
                 continue;
             }
 
+            EnvCallExtractor::connectParents($stmts);
+
             $prefix = str_replace('/', '.', substr($this->relative($configDir, $path), 0, -4));
 
             /** @var SplObjectStorage<Node, true> $seen */

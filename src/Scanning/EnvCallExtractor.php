@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Touhidurabir\EnvLens\Scanning;
 
+use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\BinaryOp\Coalesce;
 use PhpParser\Node\Expr\BinaryOp\Concat;
 use PhpParser\Node\Expr\ConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\StaticCall;
+use PhpParser\Node\Expr\Ternary;
 use PhpParser\Node\Expr\UnaryMinus;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\InterpolatedStringPart;
@@ -18,12 +21,26 @@ use PhpParser\Node\Scalar\Float_;
 use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor\ParentConnectingVisitor;
 
 /**
  * Recognises env() / Env::get() calls in a parsed PHP syntax tree.
  */
 final class EnvCallExtractor
 {
+    /**
+     * Lets fromCall() see what surrounds a call, for `env('X') ?? 'fallback'`.
+     *
+     * @param  array<Node>  $stmts
+     */
+    public static function connectParents(array $stmts): void
+    {
+        $traverser = new NodeTraverser;
+        $traverser->addVisitor(new ParentConnectingVisitor);
+        $traverser->traverse($stmts);
+    }
+
     /**
      * @return array{key: ?string, pattern: ?string, default: DefaultKind, defaultValue: ?string}|null
      */
@@ -51,7 +68,7 @@ final class EnvCallExtractor
             $pattern = $glob === '*' ? null : $glob;
         }
 
-        [$default, $defaultValue] = self::defaultOf($args[1] ?? null);
+        [$default, $defaultValue] = self::defaultOf($args[1] ?? self::fallbackOf($node));
 
         return ['key' => $key, 'pattern' => $pattern, 'default' => $default, 'defaultValue' => $defaultValue];
     }
@@ -99,6 +116,24 @@ final class EnvCallExtractor
         return null;
     }
 
+    /** Keeps 1.0 looking like a float: (string) 1.0 is "1", which would then read as a whole number. */
+    private static function number(Int_|Float_ $value): string
+    {
+        return $value instanceof Float_ ? var_export($value->value, true) : (string) $value->value;
+    }
+
+    /** What `env('X') ?? 'y'` and `env('X') ?: 'y'` fall back to: the same thing as a default argument. */
+    private static function fallbackOf(Node $node): ?Arg
+    {
+        $parent = $node->getAttribute('parent');
+
+        return match (true) {
+            $parent instanceof Coalesce && $parent->left === $node => new Arg($parent->right),
+            $parent instanceof Ternary && $parent->if === null && $parent->cond === $node => new Arg($parent->else),
+            default => null,
+        };
+    }
+
     /**
      * @return array{0: DefaultKind, 1: ?string}
      */
@@ -124,11 +159,11 @@ final class EnvCallExtractor
         }
 
         if ($value instanceof Int_ || $value instanceof Float_) {
-            return [DefaultKind::Literal, (string) $value->value];
+            return [DefaultKind::Literal, self::number($value)];
         }
 
         if ($value instanceof UnaryMinus && ($value->expr instanceof Int_ || $value->expr instanceof Float_)) {
-            return [DefaultKind::Literal, '-'.$value->expr->value];
+            return [DefaultKind::Literal, '-'.self::number($value->expr)];
         }
 
         return [DefaultKind::NonLiteral, null];

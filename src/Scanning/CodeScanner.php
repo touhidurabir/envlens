@@ -14,12 +14,6 @@ use PhpParser\ParserFactory;
 final class CodeScanner
 {
     /**
-     * `env(` not preceded by `@` (the @env directive), a word char, `->`, `$`, `::` or `\`;
-     * or `Env::get(` / `Env::getOrFail(`, optionally fully qualified.
-     */
-    private const BLADE_PATTERN = '/(?:(?<![@\w>$:\\\\])env|(?<![\w>$:])Env::get(?:OrFail)?)\(\s*([\'"])([A-Za-z_][A-Za-z0-9_]*)\1/';
-
-    /**
      * @param  list<string>  $paths  directories or files, relative to $basePath or absolute
      * @param  list<string>  $exclude  relative path prefixes to skip
      * @return array{usages: list<EnvUsage>, warnings: list<string>}
@@ -38,6 +32,7 @@ final class CodeScanner
 
         $parser = (new ParserFactory)->createForNewestSupportedVersion();
         $finder = new NodeFinder;
+        $blade = new BladeScanner($parser);
         $seenFiles = [];
 
         foreach ($paths as $path) {
@@ -61,7 +56,12 @@ final class CodeScanner
                 }
 
                 if (str_ends_with($relative, '.blade.php')) {
-                    $this->scanBlade($code, $relative, $usages);
+                    foreach ($blade->scan($code) as $info) {
+                        $usages[] = new EnvUsage(
+                            $info['key'], $relative, $info['line'], UsageSource::Code, null,
+                            $info['default'], $info['defaultValue'], $info['pattern'],
+                        );
+                    }
 
                     continue;
                 }
@@ -73,6 +73,8 @@ final class CodeScanner
 
                     continue;
                 }
+
+                EnvCallExtractor::connectParents($stmts);
 
                 foreach ($finder->find($stmts, fn (Node $n) => $n instanceof FuncCall || $n instanceof StaticCall) as $call) {
                     /** @var FuncCall|StaticCall $call */
@@ -89,25 +91,6 @@ final class CodeScanner
         }
 
         return ['usages' => $usages, 'warnings' => $warnings];
-    }
-
-    /**
-     * @param  list<EnvUsage>  $usages
-     */
-    private function scanBlade(string $code, string $relative, array &$usages): void
-    {
-        if (preg_match_all(self::BLADE_PATTERN, $code, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) === false) {
-            return;
-        }
-
-        foreach ($matches as $match) {
-            $offset = $match[0][1];
-            $line = substr_count($code, "\n", 0, $offset) + 1;
-            $usages[] = new EnvUsage(
-                $match[2][0], $relative, $line, UsageSource::Code, null,
-                DefaultKind::None, null, null,
-            );
-        }
     }
 
     /**
