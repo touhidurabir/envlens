@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Touhidurabir\EnvLens;
 
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Validation\Factory;
 use Illuminate\Filesystem\Filesystem;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Touhidurabir\EnvLens\Analysis\EnvAnalyzer;
 use Touhidurabir\EnvLens\Console\AuditCommand;

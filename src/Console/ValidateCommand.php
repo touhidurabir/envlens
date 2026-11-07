@@ -201,6 +201,16 @@ final class ValidateCommand extends EnvLensCommand
 
         $inference = $this->lens()->inferrer()->infer($this->index(), $this->exampleFile());
 
+        if ($this->wantsJson()) {
+            if (! $dryRun && @file_put_contents($path, (new RulesFileWriter)->render($inference)) === false) {
+                $this->error("Could not write {$name}.");
+
+                return 1;
+            }
+
+            return $this->json('env:validate', ['file' => $name, 'written' => ! $dryRun, 'rules' => $inference->rules, 'skipped' => $inference->skipped]);
+        }
+
         renderUsing($this->output);
 
         $this->rulesTable($inference, $name, $dryRun);
@@ -378,9 +388,11 @@ final class ValidateCommand extends EnvLensCommand
         };
 
         $failed = count($report->failures);
-        $summary = $report->checked === 0
-            ? 'Nothing to check'
-            : "{$failed} of {$report->checked} ".$this->plural($report->checked, 'check').' failed';
+        $summary = match (true) {
+            $report->checked === 0 => 'Nothing to check',
+            $failed === 0 => "{$report->checked} ".$this->plural($report->checked, 'check').' passed',
+            default => "{$failed} of {$report->checked} ".$this->plural($report->checked, 'check').' failed',
+        };
 
         render(<<<HTML
             <div class="mx-2 my-1">

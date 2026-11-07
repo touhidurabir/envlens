@@ -38,7 +38,8 @@ final readonly class AuditReport implements JsonSerializable
     public function has(Severity $atLeast): bool
     {
         foreach ($this->findings as $finding) {
-            if ($finding->severity()->atLeast($atLeast)) {
+            // A stale baseline entry is housekeeping: it is reported, but never fails anything.
+            if ($finding->code !== FindingCode::StaleBaseline && $finding->severity()->atLeast($atLeast)) {
                 return true;
             }
         }

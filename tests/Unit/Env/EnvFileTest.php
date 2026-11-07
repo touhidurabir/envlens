@@ -180,3 +180,20 @@ it('finds assignments inside a prose comment', function () {
 
     expect(array_map(fn ($l) => [$l->key, $l->value, $l->line], $lines))->toBe([['B', 'two', 1], ['C', 'three', 1]]);
 });
+
+it('accepts what phpdotenv accepts', function (string $source, string $key, ?string $value) {
+    $file = EnvFile::fromString($source);
+
+    expect($file->syntaxErrors())->toBe([])
+        ->and($file->has($key))->toBeTrue()
+        ->and($file->get($key))->toBe($value)
+        ->and($file->toString())->toBe($source);
+})->with([
+    'byte order mark' => ["\xEF\xBB\xBFA=1\nB=2\n", 'A', '1'],
+    'key starting with a digit' => ["2FA_ENABLED=true\n", '2FA_ENABLED', 'true'],
+    'key with no equals sign' => ["BAREWORD\nB=2\n", 'BAREWORD', null],
+]);
+
+it('still reports lines that are not assignments', function () {
+    expect(EnvFile::fromString("NOT A KEY\n")->syntaxErrors())->toHaveCount(1);
+});

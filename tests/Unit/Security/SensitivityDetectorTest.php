@@ -68,3 +68,11 @@ it('does not treat real-looking values as placeholders', function (string $value
 })->with([
     'sk_live_51Hx9aZ', 'hunter2', 'base64:3q2+7w==', 'whsec_abc123', 'mysql://root:pw@db/app', 'testing123', 'xx', 'rooted',
 ]);
+
+it('recognises more filler values', function (string $value) {
+    expect(defaultDetector()->isPlaceholder($value))->toBeTrue();
+})->with(['xxxx-xxxx-xxxx', 'sk_test_xxx', 'dummy', 'none', 'TODO', 'tbd', 'n/a', '{token}', '...', '***', '---']);
+
+it('still flags values that only contain the letter x', function () {
+    expect(defaultDetector()->isPlaceholder('sk_live_ax9'))->toBeFalse();
+});

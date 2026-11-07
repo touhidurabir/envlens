@@ -246,7 +246,7 @@ final class ExplainCommand extends EnvLensCommand
             $name = basename($path);
 
             if (! is_file($path) || in_array($name, $names, true)
-                || str_contains($name, '.backup-') || str_starts_with($name, '.env.encrypted')) {
+                || str_contains($name, '.backup-') || str_ends_with($name, '.encrypted') || str_ends_with($name, '.php')) {
                 continue;
             }
 

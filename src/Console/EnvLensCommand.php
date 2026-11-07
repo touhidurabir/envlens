@@ -189,7 +189,7 @@ abstract class EnvLensCommand extends Command
     {
         $this->line((string) json_encode(
             ['schema' => 1, 'command' => $command, 'data' => $data],
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE,
         ));
 
         return $exit;

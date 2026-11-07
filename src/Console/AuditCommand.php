@@ -268,8 +268,8 @@ final class AuditCommand extends EnvLensCommand
         }
 
         $this->newLine();
-        $this->line("  {$title} · ".count($config).' config '.$this->plural(count($config), 'file').', '
-            .count($code).' code '.$this->plural(count($code), 'file').' scanned'.$suffix);
+        $this->line("  {$title} · ".count($config).' config '.$this->plural(count($config), 'file').' and '
+            .count($code).' code '.$this->plural(count($code), 'file').' read env()'.$suffix);
     }
 
     private function verdict(AuditReport $report, int $exit, string $failOn): void

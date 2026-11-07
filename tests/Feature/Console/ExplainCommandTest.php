@@ -114,3 +114,14 @@ it('outputs suggestions and exit 1 as json for an unknown key', function () {
 
     expect($doc['data']['status'])->toBeNull()->and($doc['data']['suggestions'])->toContain('DB_HOST');
 });
+
+it('does not list encrypted or PHP files as env files', function () {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/.env.production.encrypted', 'x');
+    file_put_contents($path.'/.env.rules.php', '<?php return [];');
+    file_put_contents($path.'/.env.staging', "A=1\n");
+
+    Artisan::call('env:explain', ['key' => 'DB_HOST', '--path' => $path, '--no-interaction' => true]);
+
+    expect(Artisan::output())->toContain('.env.staging')->not->toContain('.encrypted')->not->toContain('.env.rules.php');
+});

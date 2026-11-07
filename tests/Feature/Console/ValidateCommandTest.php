@@ -386,3 +386,18 @@ it('still runs a rules file when there is no config to infer from', function () 
 
     validateCmd(['--path' => $path], 1);
 });
+
+it('says how many checks passed, not how many failed, when all pass', function () {
+    expect(validateCmd(['--path' => validateProject()]))->toMatch('/PASS\s+36 checks passed/');
+});
+
+it('outputs the generated rules as JSON', function (array $options) {
+    $path = validateProject();
+    $data = json_decode(validateCmd(['--path' => $path, '--init' => true, '--json' => true] + $options), true);
+
+    expect($data['schema'])->toBe(1)
+        ->and($data['command'])->toBe('env:validate')
+        ->and(collect($data['data']['rules'])->firstWhere('key', 'DB_PORT'))->toMatchArray(['written' => 'nullable|integer', 'active' => true])
+        ->and($data['data']['skipped'])->toHaveKeys(['free', 'nonLiteral', 'conflicting', 'none'])
+        ->and($data['data']['file'])->toBe('env.rules.php');
+})->with(['dry run' => [['--dry-run' => true]], 'writing' => [[]]]);

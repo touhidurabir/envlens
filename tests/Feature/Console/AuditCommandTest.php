@@ -21,7 +21,7 @@ it('exits 1 by default when errors are found and prints findings', function () {
 
 it('prints a header and a verdict badge', function () {
     expect(audit(['--path' => fixtureProject('basic')], 1))
-        ->toContain('Auditing .env against .env.example · 4 config files, 4 code files scanned')
+        ->toContain('Auditing .env against .env.example · 4 config files and 4 code files read env()')
         ->toMatch('/FAIL\s+0 errors|FAIL\s+\d+ errors · \d+ warnings · \d+ info \(exit 1, --fail-on=error\)/');
 
     expect(audit(['--path' => fixtureProject('basic'), '--fail-on' => 'none']))->toMatch('/WARN\s+\d+ errors/');

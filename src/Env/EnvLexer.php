@@ -46,7 +46,15 @@ final class EnvLexer
                 continue;
             }
 
-            if (preg_match('/^\s*(export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=/', $raw, $m, PREG_OFFSET_CAPTURE) !== 1) {
+            // phpdotenv accepts a key with no equals sign, and reads it as having no value.
+            if (preg_match('/^(?:\xEF\xBB\xBF)?\s*(export\s+)?([A-Za-z0-9_][A-Za-z0-9_.]*)\s*$/', $raw, $m) === 1) {
+                $lines[] = new EnvLine(EnvEntryType::Key, $raw, $start, $m[2], null, $m[1] !== '');
+                $i++;
+
+                continue;
+            }
+
+            if (preg_match('/^(?:\xEF\xBB\xBF)?\s*(export\s+)?([A-Za-z0-9_][A-Za-z0-9_.]*)\s*=/', $raw, $m, PREG_OFFSET_CAPTURE) !== 1) {
                 $lines[] = new EnvLine(EnvEntryType::Invalid, $raw, $start);
                 $errors[] = new SyntaxError($start, 'Line is not a valid KEY=value assignment.');
                 $i++;
@@ -146,7 +154,7 @@ final class EnvLexer
     private function parseValue(string $raw, bool $exported): string
     {
         $source = rtrim($raw, "\r\n");
-        $source = ltrim($source);
+        $source = ltrim((string) preg_replace('/^\xEF\xBB\xBF/', '', $source));
 
         if ($exported) {
             $source = preg_replace('/^export\s+/', '', $source) ?? $source;

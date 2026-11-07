@@ -233,3 +233,30 @@ it('fails on a real env() call in Blade', function () {
 
     expect(auditCi(['--path' => $path], 1))->toMatch('/X\s*\.+\s*resources\/views\/a\.blade\.php:2/');
 });
+
+it('never fails on a stale baseline entry, even with --fail-on=info', function () {
+    $path = ciProject(['LEGACY_ONE']);
+    auditCi(['--path' => $path, '--update-baseline' => true]);
+    unlink($path.'/config/partner.php');
+
+    Artisan::call('env:audit', ['--ci' => true, '--path' => $path, '--json' => true]);
+    $findings = json_decode(Artisan::output(), true)['data']['findings'];
+    expect(collect($findings)->pluck('code')->unique()->all())->toContain('stale-baseline');
+
+    expect(collect($findings)->where('code', '!=', 'stale-baseline')->where('severity', 'info')->count())->toBe(0);
+    auditCi(['--path' => $path, '--fail-on' => 'info']);
+});
+
+it('still prints JSON when a value is not valid UTF-8', function () {
+    $path = ciProject();
+    file_put_contents($path.'/config/partner.php', "<?php\n\nreturn ['a' => env('LATIN_NAME', 'caf\xE9')];\n");
+    file_put_contents($path.'/config/partner2.php', "<?php\n\nreturn ['b' => env('NOPE_KEY')];\n");
+
+    $data = json_decode(auditCi(['--path' => $path, '--json' => true], 1), true);
+
+    expect($data)->toBeArray()->and($data['schema'])->toBe(1);
+});
+
+it('says how many reads it found, not how many files it scanned', function () {
+    expect(auditCi(['--path' => fixtureProject('stock-13')]))->toMatch('/\d+ config files? and \d+ code files? read env\(\)/');
+});

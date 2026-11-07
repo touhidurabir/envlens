@@ -236,7 +236,7 @@ Checks your env files and every `env()` call, then tells you what to fix first. 
    listed, unless you pass `-v`.
 
 ```
-  Auditing .env against .env.example · 12 config files, 2 code files scanned
+  Auditing .env against .env.example · 12 config files and 2 code files read env()
 
    FAIL  3 errors · 15 warnings · 89 info (exit 1, --fail-on=error)
 
@@ -656,7 +656,7 @@ On any other CI system, run the same command and rely on the exit code, or parse
 
 ```yaml
 env:
-  image: php:8.4
+  image: composer:2
   script:
     - composer install --no-interaction --prefer-dist
     - php artisan env:audit --ci

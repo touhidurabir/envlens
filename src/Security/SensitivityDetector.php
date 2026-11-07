@@ -11,7 +11,7 @@ final class SensitivityDetector
     /** scheme://user:password@host: a connection string carrying credentials. */
     private const CREDENTIAL_URL = '#^[a-z][a-z0-9+.-]*://[^/@\s]*:[^/@\s]+@#i';
 
-    private const PLACEHOLDERS = ['null', '(null)', 'empty', '(empty)', 'true', 'false', 'root', 'admin', 'test', 'homestead', 'laravel', 'sail', 'forge'];
+    private const PLACEHOLDERS = ['null', '(null)', 'empty', '(empty)', 'true', 'false', 'root', 'admin', 'test', 'homestead', 'laravel', 'sail', 'forge', 'dummy', 'none', 'todo', 'tbd', 'n/a'];
 
     private const PLACEHOLDER_WORDS = ['password', 'secret', 'replace', 'random', 'example', 'change', 'your', 'placeholder', 'abcdef'];
 
@@ -57,7 +57,7 @@ final class SensitivityDetector
             return true;
         }
 
-        if (preg_match('/^<.*>$/', $lower) === 1 || preg_match('/^x{3,}$/', $lower) === 1) {
+        if (preg_match('/^(<.*>|\{.*\}|[.*\-_]{3,})$/', $lower) === 1 || str_contains($lower, 'xxx')) {
             return true;
         }
 
