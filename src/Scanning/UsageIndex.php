@@ -149,6 +149,18 @@ final class UsageIndex
         return $usages !== [] && $usages === $this->codeUsages($key);
     }
 
+    /** True when Laravel's own config reads the key, so it is a known framework key, not an app addition. */
+    public function isReadByFramework(string $key): bool
+    {
+        foreach ($this->for($key) as $usage) {
+            if ($usage->source === UsageSource::Vendor && $usage->package === UsageScanner::FRAMEWORK_PACKAGE) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** True when at least one usage (keyed or dynamic) came from the app's config files. */
     public function hasConfigUsages(): bool
     {

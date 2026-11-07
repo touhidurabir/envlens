@@ -7,6 +7,10 @@ return [
     // A config key read without a default (or with null) is only "required" when it is listed
     // in the example file or matches a glob here; otherwise a missing value is just informational.
     'required' => [],
+    // Keys that are never required and that env:audit --ci never asks the example file to list, even
+    // when config reads them with no default. Listed by default: stock Laravel reads these two for
+    // optional mail providers. envlens.required beats this list.
+    'optional' => ['POSTMARK_API_KEY', 'RESEND_API_KEY'],
     'sensitive' => [
         'keys' => ['APP_KEY'],
         'patterns' => ['*_KEY', '*_SECRET', '*_SECRET_*', '*_PASSWORD', '*_PASS', '*_TOKEN', '*_PRIVATE*', '*_DSN', '*_CREDENTIALS*', '*_SALT', '*_PASSPHRASE', '*_PWD', '*_AUTH', '*_WEBHOOK*'],
@@ -33,4 +37,6 @@ return [
     // Keys that never get a config-default placeholder in env:generate / env:sync.
     'generate' => ['skip_defaults' => ['APP_ENV', 'APP_DEBUG']],
     'production_environments' => ['production'],
+    // Keys whose non-empty value in the example file is intended, so it is not reported as example-secret.
+    'ci' => ['allow_values' => []],
 ];

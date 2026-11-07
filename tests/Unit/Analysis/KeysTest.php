@@ -54,3 +54,11 @@ it('never leaks sensitive values in json, even when revealing', function () {
     expect(json_encode(analyzer()->keys($env, analysisIndex()), JSON_THROW_ON_ERROR))->not->toContain('hostvalue')
         ->and(json_encode(analyzer()->keys($env, analysisIndex(), true), JSON_THROW_ON_ERROR))->toContain('hostvalue');
 });
+
+it('shows a key matching envlens.optional as missing-optional', function () {
+    $example = EnvFile::fromString("APP_KEY=\n");
+    $env = EnvFile::fromString("DB_HOST=x\n");
+
+    expect(statusOf(analyzer()->keys($env, analysisIndex(), false, $example), 'APP_KEY'))->toBe(KeyStatus::Missing)
+        ->and(statusOf(analyzer(optional: ['APP_KEY'])->keys($env, analysisIndex(), false, $example), 'APP_KEY'))->toBe(KeyStatus::MissingOptional);
+});

@@ -118,3 +118,51 @@ it('reports scanner warnings as scan-warning findings', function () {
         ->and($warnings[0]->severity())->toBe(Severity::Warning)
         ->and(findingsOf($r, FindingCode::Syntax))->toBe([]);
 });
+
+it('treats a key matching envlens.optional as not required, even when the example lists it', function () {
+    $index = analysisIndex();
+    $example = EnvFile::fromString("APP_KEY=\n");
+    $env = EnvFile::fromString("DB_HOST=x\n");
+
+    expect(analyzer()->isRequired('APP_KEY', $index, $example))->toBeTrue()
+        ->and(analyzer(optional: ['APP_*'])->isRequired('APP_KEY', $index, $example))->toBeFalse();
+
+    expect(findingsOf(analyzer(optional: ['APP_KEY'])->audit($env, $example, $index), FindingCode::MissingRequired))->toBe([]);
+});
+
+it('lets envlens.required beat envlens.optional', function () {
+    expect(analyzer(required: ['APP_KEY'], optional: ['APP_KEY'])->isRequired('APP_KEY', analysisIndex(), EnvFile::fromString('')))->toBeTrue();
+});
+
+it('reports a real-looking secret in the example file without its value', function (string $example, string $key, int $line) {
+    $r = analyzer()->audit(EnvFile::fromString("DB_HOST=x\n"), EnvFile::fromString($example), analysisIndex());
+    $found = findingsOf($r, FindingCode::ExampleSecret);
+
+    expect($found)->toHaveCount(1)
+        ->and($found[0]->key)->toBe($key)
+        ->and($found[0]->line)->toBe($line)
+        ->and($found[0]->severity())->toBe(Severity::Warning)
+        ->and($found[0]->hint)->toContain('rotate')
+        ->and(json_encode($r))->not->toContain('sk_live');
+})->with([
+    'plain' => ["A=1\nSTRIPE_SECRET=sk_live_x\n", 'STRIPE_SECRET', 2],
+    'commented out' => ["# STRIPE_SECRET=sk_live_x\n", 'STRIPE_SECRET', 1],
+    'commented with export' => ["A=1\n\n#export STRIPE_SECRET=\"sk_live_x\"\n", 'STRIPE_SECRET', 3],
+    'hidden by a later blank line' => ["API_SECRET=sk_live_x\nAPI_SECRET=\n", 'API_SECRET', 1],
+    'CRLF' => ["A=1\r\n# STRIPE_SECRET=sk_live_x\r\n", 'STRIPE_SECRET', 2],
+]);
+
+it('does not report placeholders, non-sensitive lines or allowed keys as secrets', function () {
+    $example = EnvFile::fromString("MAIL_PASSWORD=null\nREDIS_PASSWORD=(null)\nAPP_KEY=\n# DB_HOST=127.0.0.1\n# DB_PASSWORD=secret\nDB_PASSWORD=\"\${REAL}\"\n");
+
+    expect(findingsOf(analyzer()->audit(EnvFile::fromString("A=1\n"), $example, analysisIndex()), FindingCode::ExampleSecret))->toBe([]);
+
+    $allowed = EnvFile::fromString("STRIPE_SECRET=sk_test_shared\n");
+    expect(findingsOf(analyzer(allowValues: ['STRIPE_*'])->audit(EnvFile::fromString("A=1\n"), $allowed, analysisIndex()), FindingCode::ExampleSecret))->toBe([]);
+});
+
+it('does not check the env file itself for example secrets', function () {
+    $r = analyzer()->audit(EnvFile::fromString("STRIPE_SECRET=sk_live_x\n"), null, analysisIndex());
+
+    expect(findingsOf($r, FindingCode::ExampleSecret))->toBe([]);
+});

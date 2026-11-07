@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Filesystem\Filesystem;
 use Touhidurabir\EnvLens\Scanning\CodeScanner;
 use Touhidurabir\EnvLens\Scanning\ConfigScanner;
+use Touhidurabir\EnvLens\Scanning\DefaultKind;
+use Touhidurabir\EnvLens\Scanning\EnvUsage;
 use Touhidurabir\EnvLens\Scanning\UsageIndex;
 use Touhidurabir\EnvLens\Scanning\UsageScanner;
 use Touhidurabir\EnvLens\Scanning\UsageSource;
@@ -110,4 +112,14 @@ it('warns when no config files were scanned', function () {
 
     expect($index->hasConfigUsages())->toBeFalse()
         ->and(implode("\n", $index->warnings()))->toContain('No config files were scanned');
+});
+
+it('knows whether Laravel framework config reads a key', function () {
+    $framework = new EnvUsage('A', 'vendor/laravel/framework/config/a.php', 1, UsageSource::Vendor, 'a', DefaultKind::None, null, null, 'laravel/framework');
+    $other = new EnvUsage('B', 'vendor/acme/pkg/config/b.php', 1, UsageSource::Vendor, 'b', DefaultKind::None, null, null, 'acme/pkg');
+    $index = new UsageIndex([$framework, $other]);
+
+    expect($index->isReadByFramework('A'))->toBeTrue()
+        ->and($index->isReadByFramework('B'))->toBeFalse()
+        ->and($index->isReadByFramework('C'))->toBeFalse();
 });

@@ -210,6 +210,7 @@ final class AuditCommand extends EnvLensCommand
         }
 
         $step = match ($code) {
+            FindingCode::ExampleSecret => "Blank {$count} real-looking ".$this->plural($count, 'secret')." in the example file ({$places}) and rotate ".($count === 1 ? 'it' : 'them').': values stay in git history.',
             FindingCode::Syntax => "Fix {$count} syntax ".$this->plural($count, 'error')." in {$label} (".$this->names(array_map(static fn (Finding $f): string => 'line '.$f->line, $findings)).').',
             FindingCode::MissingRequired => $count === 1
                 ? "Add {$findings[0]->key} to {$label}: required by {$findings[0]->detail}, no default."

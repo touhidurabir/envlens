@@ -100,6 +100,32 @@ final class EnvFile
     }
 
     /**
+     * Every assignment line in file order: each definition (not just the last one that wins) and each
+     * commented-out assignment such as `#KEY=value`. Commented-out lines never define a key, so this is
+     * only for looking at what the file holds, as secret detection does.
+     *
+     * @return list<EnvLine>
+     */
+    public function assignments(): array
+    {
+        $found = [];
+
+        foreach ($this->lines as $line) {
+            if ($line->type === EnvEntryType::Key && $line->key !== null) {
+                $found[] = $line;
+            } elseif ($line->type === EnvEntryType::Comment) {
+                $commented = self::commentedAssignment($line);
+
+                if ($commented !== null) {
+                    $found[] = $commented;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
      * @return list<SyntaxError>
      */
     public function syntaxErrors(): array
@@ -141,6 +167,21 @@ final class EnvFile
     public function toString(): string
     {
         return implode('', array_map(static fn (EnvLine $l): string => $l->raw, $this->lines));
+    }
+
+    private static function commentedAssignment(EnvLine $line): ?EnvLine
+    {
+        $text = rtrim($line->raw, "\r\n");
+
+        if (preg_match('/^\s*#\s*((?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=(.*))$/s', $text, $m) !== 1) {
+            return null;
+        }
+
+        [$lexed] = (new EnvLexer)->lex($m[1]."\n");
+        $parsed = $lexed[0] ?? null;
+        $value = $parsed !== null && $parsed->type === EnvEntryType::Key ? $parsed->value : null;
+
+        return new EnvLine(EnvEntryType::Key, $line->raw, $line->line, $m[2], $value ?? trim($m[3]));
     }
 
     private function last(string $key): ?EnvLine

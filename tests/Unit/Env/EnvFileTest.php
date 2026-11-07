@@ -141,3 +141,30 @@ it('never puts value text in a syntax error message', function (): void {
 
     expect($errors[0]->message)->toBe('Failed to parse dotenv file. Encountered unexpected whitespace.');
 });
+
+it('lists every assignment line, including commented-out ones and earlier duplicates', function () {
+    $lines = EnvFile::fromString("# a note\nA=1\n# B=two\n#export C=\"three\" # why\nA=\n#\n# Prose: D=4 is fine\n")->assignments();
+
+    expect(array_map(fn ($l) => [$l->key, $l->value, $l->line], $lines))->toBe([
+        ['A', '1', 2],
+        ['B', 'two', 3],
+        ['C', 'three', 4],
+        ['A', '', 5],
+    ])->and($lines[1]->type)->toBe(EnvEntryType::Key);
+});
+
+it('reads commented-out assignments with CRLF endings', function () {
+    $lines = EnvFile::fromString("# B=two\r\n")->assignments();
+
+    expect($lines[0]->key)->toBe('B')->and($lines[0]->value)->toBe('two');
+});
+
+it('keeps the raw text of a commented-out value that cannot be parsed', function () {
+    $lines = EnvFile::fromString("# B=\"open\n")->assignments();
+
+    expect($lines[0]->key)->toBe('B')->and($lines[0]->value)->toBe('"open');
+});
+
+it('does not treat commented-out assignments as defining a key', function () {
+    expect(EnvFile::fromString("# B=two\n")->has('B'))->toBeFalse();
+});

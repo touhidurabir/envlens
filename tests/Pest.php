@@ -60,14 +60,18 @@ function analysisIndex(): UsageIndex
 /**
  * @param  list<string>  $allow
  * @param  list<string>  $required  envlens.required
+ * @param  list<string>  $optional  envlens.optional
+ * @param  list<string>  $allowValues  envlens.ci.allow_values
  */
-function analyzer(array $allow = [], array $required = []): EnvAnalyzer
+function analyzer(array $allow = [], array $required = [], array $optional = [], array $allowValues = []): EnvAnalyzer
 {
     return new EnvAnalyzer(
         new SensitivityDetector(['APP_KEY'], ['*PASSWORD*', '*SECRET*'], []),
         ['VITE_*'],
         $allow,
         $required,
+        $optional,
+        $allowValues,
     );
 }
 

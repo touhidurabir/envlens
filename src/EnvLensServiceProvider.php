@@ -55,6 +55,8 @@ class EnvLensServiceProvider extends ServiceProvider
             $this->stringList('envlens.cleanup.keep'),
             $this->stringList('envlens.scan.allow_env_outside_config'),
             $this->stringList('envlens.required'),
+            $this->stringList('envlens.optional'),
+            $this->stringList('envlens.ci.allow_values'),
         ));
         $this->app->singleton(EnvGenerator::class, fn (Application $app): EnvGenerator => new EnvGenerator(
             $app->make(SensitivityDetector::class),

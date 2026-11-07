@@ -179,3 +179,15 @@ it('prints a scanner warning once, as a scan-warning finding', function () {
     expect(substr_count($output, 'Could not parse config/syntax.php'))->toBe(1)
         ->and($output)->toMatch('/WARN\s+scan-warning \(1\)\s+Could not parse config\/syntax\.php/');
 });
+
+it('puts a secret committed in the example file first, without its value', function () {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/.env.example', "\n# STRIPE_SECRET=sk_live_marker\n", FILE_APPEND);
+
+    $output = audit(['--path' => $path, '--fail-on' => 'none']);
+
+    expect($output)->toContain('1. Blank 1 real-looking secret in the example file (.env.example:14) and rotate it')
+        ->toMatch('/WARN\s+example-secret \(1\)/')
+        ->toMatch('/example-secret\s+a sensitive key has a real-looking value/')
+        ->not->toContain('sk_live_marker');
+});

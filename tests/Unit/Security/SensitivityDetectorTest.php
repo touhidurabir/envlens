@@ -53,3 +53,18 @@ it('treats a key whose value is a connection string with credentials as sensitiv
         ->and($d->isSensitive('DB_URL'))->toBeFalse()
         ->and($d->isSensitive('DB_URL', null))->toBeFalse();
 });
+
+it('recognises placeholder values', function (string $value) {
+    expect(defaultDetector()->isPlaceholder($value))->toBeTrue();
+})->with([
+    'null', '(null)', 'NULL', 'empty', '(empty)', 'true', 'false', 'root', 'admin', 'test', 'homestead', 'laravel', 'sail', 'forge',
+    '${DB_PASSWORD}', 'mysql://root:${DB_PASSWORD}@db/app', '<token>', 'xxxx', 'XXX',
+    'SomeRandomString', 'database_user_password', 'SomeRandomStringOf32CharsExactly', 'secret_firefly_password',
+    'PLEASE_REPLACE_WITH_32_CHAR_CODE', 'your-api-key', 'changeme', 'change-me', 'an_example_value', 'placeholder', 'AbCdEfGh123',
+]);
+
+it('does not treat real-looking values as placeholders', function (string $value) {
+    expect(defaultDetector()->isPlaceholder($value))->toBeFalse();
+})->with([
+    'sk_live_51Hx9aZ', 'hunter2', 'base64:3q2+7w==', 'whsec_abc123', 'mysql://root:pw@db/app', 'testing123', 'xx', 'rooted',
+]);

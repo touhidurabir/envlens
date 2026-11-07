@@ -38,3 +38,12 @@ it('does not report keys empty in source', function () {
 
     expect($r->emptyInTarget)->toBe([]);
 });
+
+it('does not list a key matching envlens.optional as missing from both', function () {
+    $example = EnvFile::fromString("APP_KEY=\n");
+    $a = EnvFile::fromString("DB_HOST=x\n");
+    $b = EnvFile::fromString("DB_HOST=y\n");
+
+    expect(analyzer()->compare($a, $b, analysisIndex(), $example)->missingFromBoth)->toContain('APP_KEY')
+        ->and(analyzer(optional: ['APP_KEY'])->compare($a, $b, analysisIndex(), $example)->missingFromBoth)->not->toContain('APP_KEY');
+});

@@ -7,7 +7,7 @@ namespace Touhidurabir\EnvLens\Scanning;
 final class UsageScanner
 {
     /** Read by Laravel's own (unpublished) config files, so always scanned. */
-    private const FRAMEWORK_PACKAGE = 'laravel/framework';
+    public const FRAMEWORK_PACKAGE = 'laravel/framework';
 
     /**
      * @param  array<string, mixed>  $scanConfig  shape of config('envlens.scan')

@@ -18,8 +18,9 @@ use Touhidurabir\EnvLens\Support\Glob;
  * masked. Literal config defaults of sensitive keys are masked inside usages.
  *
  * Required: a key is required only when the index says it is config-required (a Config usage
- * without a default, and no default anywhere) AND the team declared it, by listing it in the
- * example file or in `envlens.required`. Otherwise an absent key is optional.
+ * without a default, and no default anywhere) AND the team declared it, by matching
+ * `envlens.required`, or by listing it in the example file without matching `envlens.optional`.
+ * Otherwise an absent key is optional.
  */
 final class EnvAnalyzer
 {
@@ -27,12 +28,16 @@ final class EnvAnalyzer
      * @param  list<string>  $externalPatterns  keys set by tooling outside the app (cleanup.keep)
      * @param  list<string>  $allowOutsideConfig  globs of relative paths allowed to call env()
      * @param  list<string>  $required  globs of keys declared required (envlens.required)
+     * @param  list<string>  $optional  globs of keys that are never required (envlens.optional)
+     * @param  list<string>  $allowValues  globs of keys allowed a value in the example file (envlens.ci.allow_values)
      */
     public function __construct(
         private readonly SensitivityDetector $sensitivity,
         private readonly array $externalPatterns,
         private readonly array $allowOutsideConfig,
         private readonly array $required = [],
+        private readonly array $optional = [],
+        private readonly array $allowValues = [],
     ) {}
 
     /**
@@ -220,6 +225,10 @@ final class EnvAnalyzer
                     );
                 }
             }
+        }
+
+        if ($example !== null) {
+            array_push($findings, ...$this->exampleSecrets($example));
         }
 
         foreach ($index->warnings() as $warning) {
@@ -424,11 +433,18 @@ final class EnvAnalyzer
         return array_slice(array_map('strval', array_keys($scores)), 0, 3);
     }
 
-    /** Config-required (see UsageIndex::isRequired) and declared by the team. */
-    private function isRequired(string $key, UsageIndex $index, ?EnvFile $example): bool
+    /** Config-required (see UsageIndex::isRequired) and declared by the team; envlens.required beats envlens.optional. */
+    public function isRequired(string $key, UsageIndex $index, ?EnvFile $example): bool
     {
-        return $index->isRequired($key)
-            && (Glob::matchesAny($this->required, $key) || ($example !== null && $example->has($key)));
+        if (! $index->isRequired($key)) {
+            return false;
+        }
+
+        if (Glob::matchesAny($this->required, $key)) {
+            return true;
+        }
+
+        return $example !== null && $example->has($key) && ! Glob::matchesAny($this->optional, $key);
     }
 
     private function missingCode(string $key, UsageIndex $index, ?EnvFile $example): FindingCode
@@ -450,6 +466,7 @@ final class EnvAnalyzer
             $code === FindingCode::MissingRequired => "{$key} is required by config{$paths} but missing from {$label}",
             $code === FindingCode::MissingWithDefault => "{$key} is missing from {$label} but has a default{$paths}",
             $index->isCodeOnly($key) => "{$key} is used in code but not set in {$label}",
+            Glob::matchesAny($this->optional, $key) => "{$key} is read without a default{$paths} but is optional (envlens.optional); not set in {$label}",
             default => "{$key} is read without a default{$paths} but is optional (not in the example file or envlens.required); not set in {$label}",
         };
 
@@ -460,6 +477,43 @@ final class EnvAnalyzer
         };
 
         return new Finding($code, $message, $key, $file->path(), null, $this->pathsDetail($index, $key), $hint);
+    }
+
+    /**
+     * Sensitive keys with a real-looking value in the example file. Every line counts, not just the
+     * value that wins: a commented-out or overridden secret is committed all the same. Findings
+     * name the key and line only, never the value.
+     *
+     * @return list<Finding>
+     */
+    private function exampleSecrets(EnvFile $example): array
+    {
+        $label = $this->label($example);
+        $findings = [];
+
+        foreach ($example->assignments() as $line) {
+            $key = (string) $line->key;
+            $value = (string) $line->value;
+
+            if ($value === ''
+                || ! $this->sensitivity->isSensitive($key, $value)
+                || $this->sensitivity->isPlaceholder($value)
+                || Glob::matchesAny($this->allowValues, $key)) {
+                continue;
+            }
+
+            $findings[] = new Finding(
+                FindingCode::ExampleSecret,
+                "{$key} has a real-looking value in {$label} (line {$line->line})",
+                $key,
+                $example->path(),
+                $line->line,
+                "{$label}:{$line->line}",
+                "Blank the value in {$label} and rotate the secret: it stays in git history. If it is meant to be there, list {$key} in envlens.ci.allow_values.",
+            );
+        }
+
+        return $findings;
     }
 
     /** The config paths that read a key, or where code reads it. */
