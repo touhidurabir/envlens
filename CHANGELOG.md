@@ -6,6 +6,32 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
 
 ## [Unreleased]
 
+### Added
+- `env:audit --ci`: the gate for pull requests. It checks config and code against the example file alone, with no `.env`
+  or secrets, and a stock Laravel 12 or 13 app passes with no setup. New findings: `undeclared-key` (config reads a key
+  with no default that the example doesn't list) and `example-secret`. A file that can't be scanned is an error, and
+  finding no `env()` reads in config exits 2 whatever `--fail-on` says.
+- `env:audit --ci --update-baseline`: accepts current findings in `envlens-baseline.json`, so an existing app can adopt
+  the gate and only new findings block. Secrets, syntax errors and scan failures are never accepted. Adds `stale-baseline`.
+- GitHub annotations from `env:audit` and `env:validate` inside GitHub Actions, errors first.
+- `env:validate`: checks values against rules in `env.rules.php`, and works with no rules file by inferring checks from
+  config defaults. Inferred checks warn unless `--strict`; rules in the file fail. Sensitive keys show only the rule's name.
+- `env:validate --init`: generates `env.rules.php`, showing the assumption behind each rule first.
+- `optional` and `ci.allow_values` config keys. `validator()` and `inferrer()` on the facade, and `EnvAnalyzer::contract()`.
+- `illuminate/validation` as a dependency (Laravel apps already have it).
+- `data.baselined` in `env:audit --json`.
+
+### Changed
+These affect `env:audit` without `--ci`:
+- It reports `example-secret` as a warning when a sensitive key has a real-looking value in the example file.
+- A key matching `optional` is no longer required, even when the example lists it. By default that covers
+  `POSTMARK_API_KEY` and `RESEND_API_KEY`. This also applies to `env:keys` and `env:compare`.
+- Inside GitHub Actions it prints annotation lines.
+
+### Fixed
+- The 1.0.0 links in this file pointed at a `v1.0.0` tag; the tag is `1.0.0`.
+- The README's CI recipe couldn't catch a forgotten key or a secret in the example. It now uses `--ci`.
+
 ## [1.0.0] - 2026-10-28
 
 ### Added
