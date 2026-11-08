@@ -9,6 +9,33 @@
 
 Inspect, compare, audit and safely maintain the `.env` files of a Laravel application.
 
+## Contents
+
+- [Why](#why)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+  - [`env:keys`](#envkeys)
+  - [`env:compare`](#envcompare)
+  - [`env:audit`](#envaudit)
+  - [`env:explain`](#envexplain)
+  - [`env:generate`](#envgenerate)
+  - [`env:sync`](#envsync)
+  - [`env:cleanup`](#envcleanup)
+  - [`env:validate`](#envvalidate)
+- [CI setup](#ci-setup)
+  - [Options](#options)
+  - [What fails the pull request check](#what-fails-the-pull-request-check)
+  - [Adopting it on an existing app](#adopting-it-on-an-existing-app)
+  - [Validate before you deploy](#validate-before-you-deploy)
+- [Configuration](#configuration)
+  - [Required keys](#required-keys)
+- [Safety model](#safety-model)
+- [Using the services programmatically](#using-the-services-programmatically)
+- [Output in AI coding agents](#output-in-ai-coding-agents)
+- [Testing](#testing)
+- [License](#license)
+
 ## Why
 
 `.env` files drift. Keys get added in one environment and forgotten in `.env.example`, old keys linger after the
@@ -33,54 +60,17 @@ php artisan vendor:publish --provider="Touhidurabir\EnvLens\EnvLensServiceProvid
 
 Install it as a regular dependency instead if you want to run the commands in production-like environments.
 
-## Configuration
+## Quick start
 
-`config/envlens.php`:
+```bash
+php artisan env:keys              # what is in .env and who reads each key
+php artisan env:audit             # what is wrong, most important first
+php artisan env:explain DB_HOST   # everything about one key
+php artisan env:validate          # are the values acceptable? (no setup needed)
+php artisan env:audit --ci        # the check to run on every pull request
+```
 
-| Key | Default | Meaning |
-|---|---|---|
-| `files.source` | `.env` | Default "real" env file for every command (`source` argument, `--file`, `--source`). |
-| `files.example` | `.env.example` | Default example file for every command (`target` argument, `--example`). |
-| `required` | `[]` | Globs of keys you declare required, in addition to the keys listed in the example file (see [Required keys](#required-keys)). |
-| `sensitive.keys` | `['APP_KEY']` | Exact key names treated as sensitive. |
-| `sensitive.patterns` | `*_KEY`, `*_SECRET`, `*_SECRET_*`, `*_PASSWORD`, `*_PASS`, `*_TOKEN`, `*_PRIVATE*`, `*_DSN`, `*_CREDENTIALS*`, `*_SALT`, `*_PASSPHRASE`, `*_PWD`, `*_AUTH`, `*_WEBHOOK*` | Case-insensitive globs for sensitive keys. A value that is a connection string with credentials (`scheme://user:password@host`) also makes its key sensitive. |
-| `sensitive.except` | `*_PUBLIC_KEY`, `VITE_*_KEY` | Globs exempted from the patterns above. |
-| `scan.config_paths` | `['config']` | Config directories to scan, relative to the project base path or absolute. |
-| `scan.code_paths` | `app`, `routes`, `database`, `resources/views`, `bootstrap` | Code directories scanned for `env()` calls, relative or absolute. |
-| `scan.exclude` | `vendor`, `storage`, `node_modules`, `bootstrap/cache` | Paths skipped while scanning. |
-| `scan.allow_env_outside_config` | `[]` | Globs of relative file paths that may call `env()` without being flagged. |
-| `cleanup.keep` | `VITE_*`, `SAIL_*`, `WWWUSER`, `WWWGROUP`, `FORWARD_*`, `PHP_CLI_SERVER_WORKERS`, `APP_RUNNING_IN_CONSOLE`, `APP_*_CACHE`, `APP_BASE_PATH`, `LARAVEL_*` | Globs of keys that `env:cleanup` never removes (read by Laravel internals outside config). |
-| `write.backup` | `true` | Back up a file before modifying it (see [Safety model](#safety-model)). |
-| `write.backup_path` | `storage/envlens/backups` | Backup directory, relative to the project base path or absolute. |
-| `write.group_by_prefix` | `true` | Insert new keys after the last key sharing their prefix (`MAIL_*` next to `MAIL_*`); otherwise append at the end. |
-| `write.header_comment` | `true` | Put a `# Added by envlens ...` comment above appended keys. |
-| `write.remove_attached_comments` | `true` | When removing a key, also remove the comment lines directly above it (no blank line between). |
-| `generate.skip_defaults` | `APP_ENV`, `APP_DEBUG` | Keys that `env:generate` and `env:sync` never fill with a config default (so an example never says `APP_ENV=production`). |
-| `production_environments` | `['production']` | Environment names treated as production by the guard. |
-
-All commands accept `--path=` to point at another project base path; file arguments resolve relative to it.
-Exit codes: `0` ok, `1` problems found (`--strict`, `--fail-on`, an unknown key in `env:explain`) or an action was
-refused or declined, `2` usage error (missing file, bad option). Read-only commands accept `--json`; every payload has a top-level `"schema": 1`
-(removing or renaming a field bumps it, and the change is recorded in the CHANGELOG).
-
-Laravel's own unpublished config (`vendor/laravel/framework/config`) is always scanned, so keys such as
-`BCRYPT_ROUNDS` that only the framework reads count as used. The scan is only used for that: keys read solely by
-the framework are not listed by `env:keys` or reported as missing by `env:audit`.
-`--vendor` (on `keys`, `compare`, `audit`, `explain`, `cleanup`) reports framework usages in full and also scans
-the config of every other vendor package. Vendor usages never make a key required.
-
-### Required keys
-
-Laravel's config files use `env('X')` with no default to mean "optional", so EnvLens does not treat every such
-key as required. A key is **required** only when all of these hold:
-
-1. at least one of your `config/` files reads it with no default (or a `null` default),
-2. no usage anywhere gives it a default, and
-3. your team declared it: it is listed in the example file (`.env.example`) or matches a glob in `required`.
-
-A required key that is absent is a `missing-required` error. Without the declaration it is optional, and an
-absent optional key is only a `missing-optional` info finding. A key read only from application code is also
-optional.
+To block pull requests and deploys on these checks, see [CI setup](#ci-setup).
 
 ## Commands
 
@@ -88,11 +78,12 @@ optional.
 |---|---|---|
 | [`env:keys`](#envkeys) | list the keys in an env file: set or empty, sensitive, who reads them, status | no |
 | [`env:compare`](#envcompare) | compare two env files key by key | no |
-| [`env:audit`](#envaudit) | check env files and `env()` calls, with a prioritised fix list (CI gate) | no |
+| [`env:audit`](#envaudit) | check env files and `env()` calls, with a prioritised fix list; `--ci` is the pull request gate | no |
 | [`env:explain`](#envexplain) | see everything about one key, including what value the app gets | no |
 | [`env:generate`](#envgenerate) | build an example file from a real one | yes |
 | [`env:sync`](#envsync) | add missing keys to a file, in either direction | yes |
 | [`env:cleanup`](#envcleanup) | remove keys a file shouldn't have (never ones the app reads) | yes |
+| [`env:validate`](#envvalidate) | check that values are acceptable, with rules you write or checks inferred from config | only `--init` |
 
 All commands share one look: a header line saying what is being done, a table, a legend where codes need
 explaining, and a summary. Write commands show exactly what they will write before writing, support `--dry-run`,
@@ -233,7 +224,7 @@ are empty in the target but not in the source. Differing values never fail. Exit
 ### `env:audit`
 
 ```bash
-php artisan env:audit [--file=] [--example=] [--vendor] [--fail-on=error] [--json] [--path=] [-v]
+php artisan env:audit [--file=] [--example=] [--vendor] [--fail-on=error] [--ci] [--update-baseline] [--json] [--path=] [-v]
 ```
 
 Checks your env files and every `env()` call, then tells you what to fix first. The output, top to bottom:
@@ -245,7 +236,7 @@ Checks your env files and every `env()` call, then tells you what to fix first. 
    listed, unless you pass `-v`.
 
 ```
-  Auditing .env against .env.example · 12 config files, 2 code files scanned
+  Auditing .env against .env.example · 12 config files and 2 code files read env()
 
    FAIL  3 errors · 15 warnings · 89 info (exit 1, --fail-on=error)
 
@@ -277,8 +268,10 @@ Findings, in fix order:
 
 | Code | Severity | Meaning |
 |---|---|---|
+| `example-secret` | warning (error with `--ci`) | A sensitive key has a real-looking value in the example file, on any line, including commented-out ones. Names the key and line, never the value. |
 | `syntax` | error | A line phpdotenv cannot parse (the message never includes the value). |
 | `missing-required` | error | A [required](#required-keys) key absent from the file. |
+| `undeclared-key` | error (only with `--ci`) | Config reads it with no default, but the example file doesn't list it. |
 | `empty-value` | warning | Set but empty and read by config or code: `env()` returns `''`, so the config default is **not** used. |
 | `env-outside-config` | error | `env()` called outside `config/`; it returns `null` once `php artisan config:cache` runs. |
 | `duplicate-key` | warning | Defined twice in the file (the last one wins). |
@@ -289,12 +282,16 @@ Findings, in fix order:
 | `unused-key` | info | In the file, nothing reads it. |
 | `missing-optional` | info | Absent, read without a default but not declared required, or read only from code. |
 | `missing-with-default` | info | Absent, but config provides a default (including non-literal defaults). Usually fine. |
+| `stale-baseline` | info (only with `--ci`) | Accepted in the baseline, but no longer reported. |
 
 The audit no longer prints a usage table per config file; `env:keys` and `env:explain KEY` show where each key is
 read. With `--json`, `data` holds `usages`, `findings` (each with `detail` and a `hint` saying how to fix it) and a
 `summary` of the counts per severity.
 
 `--fail-on=error|warning|info|none` picks the severity that produces exit code 1 (default `error`).
+
+`--ci` checks config and code against the example file alone, with no `.env`, and `--update-baseline` accepts its current
+findings. See [CI setup](#ci-setup). Inside GitHub Actions, `env:audit` also prints annotations.
 
 ### `env:explain`
 
@@ -347,10 +344,11 @@ php artisan env:generate [target] [--source=] [--with-values] [--no-defaults] [-
 ```
 
 Creates `target` (default `files.example`) from the structure of `source` (default `files.source`) with values
-blanked: comments, order and blank lines are kept, but a commented-out assignment such as `#MAIL_PASSWORD=...`
-keeps only `#MAIL_PASSWORD=`. Blank keys get the literal default from config unless `--no-defaults` (never for
+blanked: comments, order and blank lines are kept, but a commented-out assignment such as `#MAIL_PASSWORD=...` or
+`## MAIL_PASSWORD=...` keeps only the key, and a secret inside a comment's words (`# Old: API_SECRET=...`) is blanked too. Blank keys get the literal default from config unless `--no-defaults` (never for
 keys in `generate.skip_defaults`); sensitive keys are always blank.
-`--with-values` keeps non-sensitive values (refused in production). Unparseable source lines are dropped.
+`--with-values` keeps non-sensitive values (refused in production). Unparseable source lines are dropped, and an
+unterminated quote drops everything after it; the summary lists every line lost.
 If the target exists you are asked to confirm (default No); non-interactively it is refused without `--force`.
 `--dry-run` shows everything and writes nothing (allowed in production). It never overwrites the app's own env file
 (`files.source`), even with `--force`, since a generated file has no real values; it can create one that doesn't
@@ -451,12 +449,14 @@ Default (mirror) mode removes from `target` the keys that are absent from `sourc
 that nothing in config or code reads (the `source` argument is ignored; name the file with `--file`, for example
 `env:cleanup --unused --file=.env`). In **both** modes a key is always kept when:
 
-- config or code reads it (in mirror mode such a key belongs in the source; cleanup points at `env:sync`),
+- config or code reads it (in mirror mode such a key belongs in the source; cleanup points at `env:sync`), including
+  through `getenv()`, `$_ENV` or `$_SERVER`,
 - a runtime-built `env("PREFIX_{$x}")` call matches it, or
 - it matches `cleanup.keep`.
 
-Cleanup warns about fully dynamic `env()` calls (any key could be read there). If no config file was scanned,
-`--unused` refuses (exit 2) rather than treat every key as unused. Interactively you get a multiselect (all ticked,
+Cleanup warns about fully dynamic `env()` calls (any key could be read there). If no config file was scanned, it
+refuses (exit 2) rather than treat every key as unused, and if any file couldn't be scanned, it refuses to write (exit 2),
+since that file might read the key; `--dry-run` still shows the plan. Interactively you get a multiselect (all ticked,
 labels say which keys have a value) and a confirmation that defaults to No; declining prints `Aborted.` and exits 1.
 **Non-interactive runs without `--force` are a dry run.** In production the app's own env file (`files.source`) is
 never written, even with `--force`.
@@ -485,18 +485,201 @@ warning with the count. `--unused` lists under Kept only keys saved by a runtime
 (read keys are never candidates there). A removal ends with `DONE Removed N keys from <file>.`, the backup path
 relative to the project, and `git diff <file>` unless the file is your own `.env`.
 
-## CI usage
+### `env:validate`
 
-`env:audit --fail-on=error` is the primary check. It fails the build on `missing-required`, `env-outside-config`
-and `syntax` findings, and reports `example-drift`, `empty-value` and `duplicate-key` as warnings (use
-`--fail-on=warning` to fail on those too). CI usually has no real `.env`, so the audit step below copies
-`.env.example` to `.env` so that `--file=.env` exists. That means the audit checks your config and code against the
-keys the example declares. A copied example has blank values, so expect `empty-value` warnings there; keep
-`--fail-on=error` in that setup.
+```bash
+php artisan env:validate [--file=] [--from-env] [--rules=] [--environment=] [--strict] [--init] [--dry-run] [--show-rules-only] [--json] [--path=]
+```
 
-`env:compare --strict` is only meaningful with a real, explicit source. Commit a file that lists the keys your
-application needs (for example `.env.ci`) and compare it with the example. The command exits 1 when the target
-lacks any key the source has. Do not compare a file with a copy of itself, since that always passes.
+Checks real values. Where `env:audit --ci` asks whether the keys are declared, `env:validate` asks whether their values
+are acceptable: is `DB_PORT` a number, is `APP_URL` a URL, is `APP_DEBUG` off in production.
+
+**It works with no setup.** With no rules file, it infers checks from how your config reads each key:
+
+| Config reads | Check | Why |
+|---|---|---|
+| `env('DB_PORT', 3306)`, `env('DB_PORT', '3306')` | `nullable\|integer` | the default is a whole number |
+| `env('RATE', 1.5)` | `nullable\|numeric` | the default is a number |
+| `env('APP_DEBUG', false)` | `nullable\|boolean` | the default is true or false |
+| `env('APP_URL', 'http://localhost')` | `nullable\|url` | the default is a URL |
+| `env('MAIL_FROM', 'hi@example.com')` | `nullable\|email` | the default is an email address |
+| `env('APP_KEY')` | `required` | Laravel cannot encrypt without it |
+
+A free-text default (`env('LOG_CHANNEL', 'stack')`), a non-literal one (`env('A', env('B'))`) or defaults that disagree
+give no check, and neither does `env('X')` with no default, because many such keys are truly optional: `env:audit`
+reports the [required](#required-keys) ones that are missing. **Inferred checks are guesses, so they warn and exit 0.** `env('X', false)` might one day hold a
+certificate instead of a boolean, and a wrong guess shouldn't block a deploy. Pass `--strict` to fail on them anyway.
+
+```
+  Validating .env · 31 inferred · environment: local
+
++-----------+------------------+----------+----------------------------------------------------------------+
+| Key       | Rules            | Source   | Based on                                                       |
++-----------+------------------+----------+----------------------------------------------------------------+
+| APP_DEBUG | nullable|boolean | inferred | config default false is true/false (config/app.php:42)         |
+| APP_KEY   | required         | inferred | Laravel cannot encrypt without it (config/app.php:98)          |
+| DB_PORT   | nullable|integer | inferred | config default 3306 is a whole number (config/database.php:49) |
++-----------+------------------+----------+----------------------------------------------------------------+
+
+   WARN  1 of 31 checks failed (exit 0)
+
++---------+-----------+----------+-------------+-----------------------------------+
+| Key     | Sensitive | Source   | Failed rule | Message                           |
++---------+-----------+----------+-------------+-----------------------------------+
+| DB_PORT | –         | inferred | integer     | The DB_PORT field must be an      |
+|         |           |          |             | integer.                          |
++---------+-----------+----------+-------------+-----------------------------------+
+
+  Summary ....................................................................
+  Checked ................................................................. 31
+  Failed: rules / inferred ............................................. 0 / 1
+
+  Inferred checks are guesses from config defaults, so they warn. Use --strict to fail on them.
+  No env.rules.php: these checks were inferred from your config. Review and keep them: php artisan env:validate --init
+```
+
+At a terminal with no rules file, it first asks whether to run the inferred checks or generate a rules file (`-n` skips
+the question). CI (`CI` or `GITHUB_ACTIONS` set to true), `--json`, production and runs with no terminal never ask; they
+run the inferred checks.
+
+**Every run lists the rules it checks before the result**, with where each one came from: the rules file, or the
+assumption behind an inferred check.
+
+**To see the rules without checking anything**, use `--show-rules-only`. It shows the same table and exits 0. It runs no
+rule, asks nothing, writes nothing and doesn't need a `.env`, though a file named with `--file=` must exist. `--environment=`
+picks whose rules to show, and a mistake in the rules file is still exit 2.
+
+#### Generating rules
+
+`--init` writes `env.rules.php` from the same inference, and shows what it assumed before writing anything:
+
+```
+  Generating env.rules.php from your config · 42 rules
+
++------------+--------------------------+----------------------------------------------------+---------------------------+
+| Key        | Rule                     | Assumption                                         | Read at                   |
++------------+--------------------------+----------------------------------------------------+---------------------------+
+| APP_DEBUG  | nullable|boolean         | config default false is true/false                 | config/app.php:42         |
+| APP_KEY    | required                 | Laravel cannot encrypt without it                  | config/app.php:98         |
+| AWS_BUCKET | required (commented out) | no default, and declared required; may be optional | config/filesystems.php:43 |
+| DB_PORT    | nullable|integer         | config default 3306 is a whole number              | config/database.php:49    |
++------------+--------------------------+----------------------------------------------------+---------------------------+
+
+  Summary ....................................................................
+  Active rules / commented out ....................................... 31 / 11
+  No rule: free-text / non-literal / conflicting default .......... 54 / 9 / 1
+  No rule: no default and not declared .................................... 31
+```
+
+Each key gets its own block, with the assumption above it:
+
+```php
+'rules' => [
+    // config default false is true/false (config/app.php:42)
+    'APP_DEBUG' => [
+        'nullable',
+        'boolean',
+    ],
+
+    // no default, and declared required; may be optional (config/filesystems.php:43)
+    // 'AWS_BUCKET' => [
+    //     'required',
+    // ],
+],
+```
+
+Guesses about required keys are written commented out and aren't checked, because many are truly optional; uncomment
+the ones that aren't.
+`-v` lists the keys that got no rule, and `--dry-run` shows the table and writes nothing. `--init` never overwrites an
+existing file, is refused in production and never writes a sensitive default. **Once a rule is in the file, it fails the
+command**: reviewing the file is what turns a guess into something that blocks.
+
+#### The rules file
+
+`env.rules.php` in your project root, committed. Only `rules` is required:
+
+```php
+<?php
+
+return [
+    'rules' => [
+        'APP_URL' => [
+            'required',
+            'url',
+        ],
+        'DB_PORT' => [
+            'integer',
+            'between:1,65535',
+        ],
+        'MAIL_PASSWORD' => [
+            'required_if:MAIL_MAILER,smtp',
+        ],
+    ],
+    // Added to the rules above for that environment, not swapped for them.
+    'environments' => [
+        'production' => [
+            'APP_DEBUG' => ['declined'],
+            'APP_URL' => ['starts_with:https://'],
+        ],
+    ],
+    'messages' => [
+        'APP_URL.starts_with' => 'Production must use https.',
+    ],
+    // Keep checking keys not listed here, from how config reads them. These only warn.
+    'infer' => true,
+];
+```
+
+Any Laravel validation rule works, including rule objects and closures. `'required|url'` works as well as an array. An explicit rule for a
+key replaces the inferred one. The environment comes from `--environment=`, then `APP_ENV` in the values being checked,
+then the running app. Other details:
+
+- **Values:** `--file=` reads a file (default `files.source`), and `${VAR}` resolves from that same file. `--from-env`
+  reads the process environment instead, for values your platform or CI injects.
+- **All failures** are reported, not just the first.
+- **A check that looks at nothing doesn't pass.** With no rules file and no `env()` reads found in config, it exits 2.
+- **Secrets stay hidden.** For a sensitive key, only rule names are printed, in every output, without parameters such as
+  the list in `in:`. Messages are dropped, including your custom ones, because `:input` or a closure can repeat the value.
+- **Mistakes in the file are usage errors** (exit 2) with one line of explanation: an unknown rule, even on a key that
+  isn't set, the wrong shape, or a rule that throws.
+- **Production:** validating is read-only and allowed. Only `--init` writes.
+
+| Result | Badge | Exit |
+|---|---|---|
+| Everything passes | `PASS` | 0 |
+| Only inferred checks failed | `WARN` | 0, or 1 with `--strict` |
+| A rule in the file failed, or the env file has a syntax error | `FAIL` | 1 |
+| A usage error | | 2 |
+
+The rules behave exactly as they do in Laravel, applied to what `env()` returns (`true`, not `"true"`). A few things
+catch people out with env values:
+
+- Most rules skip an empty value, so `KEY=` passes `integer`. `required*`, `accepted`, `declined`, `filled` and
+  `missing` don't skip it.
+- `declined` and `accepted` also fail when the key is absent. So `APP_DEBUG => 'declined'` means "must be explicitly
+  false", even though Laravel's default is already `false`.
+- `KEY=null` is `null`, which fails `integer` unless the rule also has `nullable`.
+- Env values are strings, so `min`, `max` and `between` measure length unless the rule also has `integer` or `numeric`.
+  `between:1,65535` on its own accepts `70000`.
+
+With `--json`, `data` holds `values_from`, `rules_file`, `environment`, `strict`, `rules` (each with `key`, `sensitive`,
+`rules`, `source`, `based_on`), `checked`, `failures` (each with `key`, `sensitive`, `source`, `rules`, `message`) and a
+`summary`. With `--show-rules-only`, it holds only `rules_file`, `environment` and `rules`.
+
+## CI setup
+
+There are two checks, because real values only exist in some places:
+
+| Check | Where it runs | What it needs | What it catches |
+|---|---|---|---|
+| `env:audit --ci` | Every pull request | Your code and `.env.example` | A key config reads that the example doesn't list, a secret committed in the example, `env()` outside config, a broken example file |
+| `env:validate` | Your deploy pipeline | Real values | A value of the wrong type, a key that must be set, a production setting that's wrong |
+
+### Set up the pull request check
+
+1. Run it once locally: `php artisan env:audit --ci`.
+2. Fix what it finds, or on an existing app [accept the current findings](#adopting-it-on-an-existing-app).
+3. Add this workflow:
 
 ```yaml
 # .github/workflows/env.yml
@@ -512,47 +695,166 @@ jobs:
         with:
           php-version: '8.4'
       - run: composer install --no-interaction --prefer-dist
-      - run: cp .env.example .env
-      - name: Audit env usage
-        run: php artisan env:audit --fail-on=error
-      - name: Example file has every key in .env.ci
-        run: php artisan env:compare .env.ci .env.example --strict
+      - name: Check env files
+        run: php artisan env:audit --ci
 ```
 
-Use `--json` for machine-readable output.
+It needs no `.env` and no secrets. If a `.env` happens to exist, it's ignored, so the result is the same on every
+machine. Inside GitHub Actions, errors and warnings also appear on the file and line in the pull request. GitHub shows
+only 10 per severity per step, so errors come first; the job log always lists everything.
 
-## Using the services programmatically
+On any other CI system, run the same command and rely on the exit code, or parse `--json`. For GitLab:
 
-```php
-use Touhidurabir\EnvLens\Facades\EnvLens;
-
-$usages = EnvLens::usages()->for('DB_HOST');   // list of EnvUsage (file, line, config path, default)
-$isUsed = EnvLens::usages()->isUsed('DB_HOST');
-
-$file = EnvLens::file(base_path('.env'));
-$detector = EnvLens::sensitivity();             // SensitivityDetector
+```yaml
+env:
+  image: composer:2
+  script:
+    - composer install --no-interaction --prefer-dist
+    - php artisan env:audit --ci
 ```
 
-The facade exposes `file()`, `usages()`, `sensitivity()`, `writer()`, `guard()`, `analyzer()`, `generator()` and
-`synchronizer()`. The services contain no console code, so they can be used from your own commands or tests. The
-analyzer returns the same objects the commands render:
+### Options
 
-```php
-$env = EnvLens::file(base_path('.env'));
-$example = EnvLens::file(base_path('.env.example'));
-$index = EnvLens::usages();
+| Option | Command | What it does |
+|---|---|---|
+| `--ci` | `env:audit` | Checks config and code against the example file alone. Can't be combined with `--file`. |
+| `--fail-on=error\|warning\|info\|none` | `env:audit` | The severity that gives exit 1. Default `error`. `none` reports without blocking. |
+| `--example=` | `env:audit` | The example file to check. Default `files.example`. |
+| `--vendor` | `env:audit` | Also scans the config of every vendor package. |
+| `--update-baseline` | `env:audit --ci` | Accepts current findings, so only new ones block. |
+| `--json` | both | Machine-readable output, with no annotations. |
+| `--from-env` | `env:validate` | Reads the process environment instead of a file. |
+| `--file=` | `env:validate` | The env file to check. Default `files.source`. |
+| `--strict` | `env:validate` | Also fails on inferred checks. |
+| `--rules=` | `env:validate` | The rules file. Default `env.rules.php`. |
+| `--environment=` | `env:validate` | Whose rules to add. Default `APP_ENV` in the values. |
+| `--show-rules-only` | `env:validate` | Shows the rules that would run, and why, without checking any values. |
 
-$report = EnvLens::analyzer()->audit($env, $example, $index);   // AuditReport: findings (with detail and hint), summary()
-$keys = EnvLens::analyzer()->keys($env, $index);                // KeyReport: rows with status, sources, hasValue
-$explanation = EnvLens::analyzer()->explain('DB_HOST', ['.env' => $env, '.env.example' => $example], $index, $example);
-// Explanation: status, resolves (value|empty|default|null), usages, overridden, findings, suggestions
+Exit codes: `0` passed, `1` problems found, `2` the check couldn't run (a missing file, a bad option, a broken rules file
+or baseline, or no config found to scan). **`--ci` exits 2 when it finds no `env()` reads in config, whatever `--fail-on`
+says**, so a misconfigured gate can't pass by checking nothing. If your config lives elsewhere, set `scan.config_paths`.
+
+### What fails the pull request check
+
+| Finding | Severity | Fix |
+|---|---|---|
+| `undeclared-key` | error | Add `KEY=` to the example. If it isn't required, also list it in [`optional`](#required-keys). |
+| `example-secret` | error | Blank the value and **rotate the secret: it stays in git history.** If the value is meant to be there, list the key in `ci.allow_values`. |
+| `env-outside-config` | error | Read it in a config file and use `config()`. |
+| `syntax` | error | Fix the line in the example file. |
+| `scan-warning` | error | Fix the PHP file EnvLens couldn't parse. |
+| `duplicate-key` | warning | Keep one definition. |
+| `dynamic-key` | warning | Use a literal key, or list the possible keys in `required`. |
+| `unused-key`, `stale-baseline` | info | Remove the key; run `--update-baseline`. |
+
+### Adopting it on an existing app
+
+A fresh Laravel app passes with no setup. An existing one usually has keys the example never listed, often a dozen or
+more, and you don't have to fix them all at once:
+
+```bash
+php artisan env:audit --ci --update-baseline
+git add envlens-baseline.json
 ```
+
+This records the current `undeclared-key` and `env-outside-config` findings, and from then on **only new ones block**.
+Entries hold a code, a key and sometimes a file, never a value or a line number, so moving code doesn't invalidate them.
+A secret, a syntax error or a scan failure is never accepted. When you fix an entry, it's reported as `stale-baseline`
+(info, never failing); running `--update-baseline` again removes it. To watch before blocking, use `--fail-on=none`.
+
+### Validate before you deploy
+
+Run `env:validate` where the real values are. With values your CI injects:
+
+```yaml
+- run: composer install --no-interaction --prefer-dist
+- name: Check production values
+  run: php artisan env:validate --from-env --strict
+  env:
+    APP_ENV: production
+    APP_KEY: ${{ secrets.APP_KEY }}
+    APP_URL: https://example.com
+    DB_PORT: ${{ vars.DB_PORT }}
+- run: composer install --no-dev --no-interaction --prefer-dist
+```
+
+`--strict` makes inferred checks block too; leave it out if you'd rather only see them as warnings. Rules in
+`env.rules.php` always block. **EnvLens installs with `--dev`, so run this before `composer install --no-dev`**, or
+install it as a regular dependency to run it on the server itself.
+
+### What these checks can't catch
+
+- **A secret under an innocent name.** `example-secret` goes by key names and connection strings, so
+  `PARTNER_CONFIG=sk_live_...` isn't caught. Use a dedicated scanner such as gitleaks for that.
+- **A weak password that looks like filler.** Values such as `secret`, `password` or anything containing those words count
+  as placeholders, so example files don't fail on their filler values.
+- **Keys built at runtime.** `env("{$p}_TOKEN")` can't be checked statically, so it's reported as `dynamic-key`.
+- **Keys read outside `env()`.** `getenv()`, `$_ENV` and `$_SERVER` reads count as used, so cleanup keeps those keys, but
+  `undeclared-key` only looks at `env()`.
+- **A value that's valid but wrong.** A correctly formatted URL can still point at the wrong server.
+
+## Configuration
+
+`config/envlens.php`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `files.source` | `.env` | Default "real" env file for every command (`source` argument, `--file`, `--source`). |
+| `files.example` | `.env.example` | Default example file for every command (`target` argument, `--example`). |
+| `required` | `[]` | Globs of keys you declare required, in addition to the keys listed in the example file (see [Required keys](#required-keys)). |
+| `optional` | `POSTMARK_API_KEY`, `RESEND_API_KEY` | Globs of keys that are never required, even when the example file lists them, and that `env:audit --ci` doesn't ask the example to list. `required` beats this. |
+| `sensitive.keys` | `APP_KEY`, `PASSWORD`, `SECRET`, `TOKEN`, `BEARER` | Exact key names treated as sensitive. |
+| `sensitive.patterns` | `*_KEY`, `*_SECRET`, `*_SECRET_*`, `*_PASSWORD`, `*_PASS`, `*_TOKEN`, `*_PRIVATE*`, `*_DSN`, `*_CREDENTIALS*`, `*_SALT`, `*_PASSPHRASE`, `*_PWD`, `*_AUTH`, `*_WEBHOOK*`, `*_PASSWD`, `*APIKEY`, `*_PASSWORD_*`, `*_TOKEN_*`, `*_KEY_*`, `*_BEARER`, `*AUTH_HEADER*` | Case-insensitive globs for sensitive keys. A value that is a connection string with credentials (`scheme://user:password@host`) also makes its key sensitive. |
+| `sensitive.except` | `*_PUBLIC_KEY`, `VITE_*_KEY`, `AUTH_PASSWORD_*`, `*_TOKEN_TABLE`, `*_TOKEN_TTL`, `*_TOKEN_LIFETIME`, `*_KEY_PREFIX` | Globs exempted from the patterns above. |
+| `scan.config_paths` | `['config']` | Config directories to scan, relative to the project base path or absolute. |
+| `scan.code_paths` | `app`, `routes`, `database`, `resources/views`, `bootstrap` | Code directories scanned for `env()` calls, relative or absolute. |
+| `scan.exclude` | `vendor`, `storage`, `node_modules`, `bootstrap/cache` | Paths skipped while scanning. |
+| `scan.allow_env_outside_config` | `[]` | Globs of relative file paths that may call `env()` without being flagged. |
+| `cleanup.keep` | `VITE_*`, `SAIL_*`, `WWWUSER`, `WWWGROUP`, `FORWARD_*`, `PHP_CLI_SERVER_WORKERS`, `APP_RUNNING_IN_CONSOLE`, `APP_*_CACHE`, `APP_BASE_PATH`, `LARAVEL_*` | Globs of keys that `env:cleanup` never removes (read by Laravel internals outside config). |
+| `write.backup` | `true` | Back up a file before modifying it (see [Safety model](#safety-model)). |
+| `write.backup_path` | `storage/envlens/backups` | Backup directory, relative to the project base path or absolute. |
+| `write.group_by_prefix` | `true` | Insert new keys after the last key sharing their prefix (`MAIL_*` next to `MAIL_*`); otherwise append at the end. |
+| `write.header_comment` | `true` | Put a `# Added by envlens ...` comment above appended keys. |
+| `write.remove_attached_comments` | `true` | When removing a key, also remove the comment lines directly above it (no blank line between). A comment that starts a block and runs into more than one key is a section heading, and stays until the last of those keys goes. |
+| `generate.skip_defaults` | `APP_ENV`, `APP_DEBUG` | Keys that `env:generate` and `env:sync` never fill with a config default (so an example never says `APP_ENV=production`). |
+| `production_environments` | `['production']` | Environment names treated as production by the guard. |
+| `ci.allow_values` | `[]` | Globs of keys whose value in the example file is intended, so it isn't reported as `example-secret`. |
+
+All commands accept `--path=` to point at another project base path; file arguments resolve relative to it.
+Exit codes: `0` ok, `1` problems found (`--strict`, `--fail-on`, a failed rule, an unknown key in `env:explain`) or an action was
+refused or declined, `2` usage error (missing file, bad option). Read-only commands accept `--json`; every payload has a top-level `"schema": 1`
+(removing or renaming a field bumps it, and the change is recorded in the CHANGELOG).
+
+Laravel's own unpublished config (`vendor/laravel/framework/config`) is always scanned, so keys such as
+`BCRYPT_ROUNDS` that only the framework reads count as used. The scan is only used for that: keys read solely by
+the framework are not listed by `env:keys` or reported as missing by `env:audit`.
+`--vendor` (on `keys`, `compare`, `audit`, `explain`, `cleanup`) reports framework usages in full and also scans
+the config of every other vendor package. Vendor usages never make a key required.
+
+### Required keys
+
+Laravel's config files use `env('X')` with no default to mean "optional", so EnvLens does not treat every such
+key as required. A key is **required** only when all of these hold:
+
+1. at least one of your `config/` files reads it with no default (or a `null` default),
+2. no usage anywhere gives it a default, and
+3. your team declared it: it matches a glob in `required`, or it is listed in the example file (`.env.example`) and
+   doesn't match a glob in `optional`.
+
+To document a key for teammates without making it required, list `KEY=` in the example and add it to `optional`. A key
+matching both `required` and `optional` is required. A commented-out `# KEY=` line doesn't count as listing it.
+
+A required key that is absent is a `missing-required` error. Without the declaration it is optional, and an
+absent optional key is only a `missing-optional` info finding. A key read only from application code is also
+optional.
 
 ## Safety model
 
 - **Masking.** Values are masked by default: the first two characters then `••••`, or just `••••` for values of
   four characters or fewer; empty values show as `(empty)`. `--reveal` shows non-sensitive values only;
   sensitive values (including connection strings with credentials) are never printed or copied.
+- **Secrets in the example file.** `env:audit` reports a sensitive key with a real-looking value there, on every line,
+  because the example is committed. `env:validate` prints only the failed rule's name for a sensitive key.
 - **Production guard.** It trips if the running app's environment **or** the target project's `.env` `APP_ENV` is
   listed in `production_environments`. In production `--reveal` and `--with-values` are refused, and write commands
   (`sync`, `cleanup`, `generate`) refuse without `--force`; even with `--force` no values are copied and the app's
@@ -569,6 +871,34 @@ $explanation = EnvLens::analyzer()->explain('DB_HOST', ['.env' => $env, '.env.ex
   `0700` with its own `.gitignore` (`*` and `!.gitignore`), so backups are never committed. Turn backups off with
   `write.backup`.
 - **Write failures.** If a write fails, the command prints the reason and exits 1; the original file is untouched.
+
+## Using the services programmatically
+
+```php
+use Touhidurabir\EnvLens\Facades\EnvLens;
+
+$usages = EnvLens::usages()->for('DB_HOST');   // list of EnvUsage (file, line, config path, default)
+$isUsed = EnvLens::usages()->isUsed('DB_HOST');
+
+$file = EnvLens::file(base_path('.env'));
+$detector = EnvLens::sensitivity();             // SensitivityDetector
+```
+
+The facade exposes `file()`, `usages()`, `sensitivity()`, `writer()`, `guard()`, `analyzer()`, `generator()`,
+`synchronizer()`, `validator()` and `inferrer()`. The services contain no console code, so they can be used from your own commands or tests. The
+analyzer returns the same objects the commands render:
+
+```php
+$env = EnvLens::file(base_path('.env'));
+$example = EnvLens::file(base_path('.env.example'));
+$index = EnvLens::usages();
+
+$report = EnvLens::analyzer()->audit($env, $example, $index);   // AuditReport: findings (with detail and hint), summary()
+$contract = EnvLens::analyzer()->contract($example, $index);    // AuditReport: the checks env:audit --ci runs
+$keys = EnvLens::analyzer()->keys($env, $index);                // KeyReport: rows with status, sources, hasValue
+$explanation = EnvLens::analyzer()->explain('DB_HOST', ['.env' => $env, '.env.example' => $example], $index, $example);
+// Explanation: status, resolves (value|empty|default|null), usages, overridden, findings, suggestions
+```
 
 ## Output in AI coding agents
 

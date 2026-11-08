@@ -25,6 +25,11 @@ abstract class EnvLensCommand extends Command
                 return 2;
             }
 
+            // With no terminal (a git hook, a pipeline, a web request) nobody can answer a question.
+            if (! $this->hasTerminal()) {
+                $this->input->setInteractive(false);
+            }
+
             return $this->perform();
         } catch (EnvFileNotFound $e) {
             $this->error($e->getMessage());
@@ -43,6 +48,11 @@ abstract class EnvLensCommand extends Command
     }
 
     abstract protected function perform(): int;
+
+    private function hasTerminal(): bool
+    {
+        return $this->laravel->runningUnitTests() || (defined('STDIN') && stream_isatty(STDIN));
+    }
 
     protected function lens(): EnvLens
     {
@@ -106,9 +116,34 @@ abstract class EnvLensCommand extends Command
     /** True when $path is the app's own env file (envlens.files.source), which production never writes. */
     protected function isLiveEnv(string $path): bool
     {
-        $live = (string) $this->envFile($this->sourceName(), false)->path();
+        return strcasecmp(self::canonical($path), self::canonical((string) $this->envFile($this->sourceName(), false)->path())) === 0;
+    }
 
-        return $path === $live || (realpath($path) !== false && realpath($path) === realpath($live));
+    /**
+     * The same spelling for the same file, even when it doesn't exist yet (`./.env`, `app/../.env`). Compared
+     * ignoring case, because `.ENV` is `.env` on some filesystems and refusing it on others does no harm.
+     */
+    private static function canonical(string $path): string
+    {
+        $real = realpath($path);
+
+        if ($real !== false) {
+            return $real;
+        }
+
+        $segments = [];
+        foreach (preg_split('#[/\\\\]+#', $path) ?: [] as $segment) {
+            if ($segment === '..') {
+                array_pop($segments);
+            } elseif ($segment !== '.') {
+                $segments[] = $segment;
+            }
+        }
+
+        $directory = implode('/', array_slice($segments, 0, -1));
+        $realDirectory = realpath($directory === '' ? '/' : $directory);
+
+        return ($realDirectory !== false ? $realDirectory : $directory).'/'.end($segments);
     }
 
     /** $path relative to the project base path when it is inside it, with `/` separators on every OS. */
@@ -154,7 +189,7 @@ abstract class EnvLensCommand extends Command
     {
         $this->line((string) json_encode(
             ['schema' => 1, 'command' => $command, 'data' => $data],
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE,
         ));
 
         return $exit;
@@ -195,7 +230,7 @@ abstract class EnvLensCommand extends Command
         return is_string($value) && $value !== '' ? $value : $default;
     }
 
-    private function resolve(string $relative): string
+    protected function resolve(string $relative): string
     {
         $isAbsolute = str_starts_with($relative, '/') || preg_match('#^[A-Za-z]:[\\\\/]#', $relative) === 1;
 

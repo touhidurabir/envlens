@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Touhidurabir\EnvLens;
 
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Validation\Factory;
 use Illuminate\Filesystem\Filesystem;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Touhidurabir\EnvLens\Analysis\EnvAnalyzer;
 use Touhidurabir\EnvLens\Console\AuditCommand;
@@ -15,6 +16,7 @@ use Touhidurabir\EnvLens\Console\ExplainCommand;
 use Touhidurabir\EnvLens\Console\GenerateCommand;
 use Touhidurabir\EnvLens\Console\KeysCommand;
 use Touhidurabir\EnvLens\Console\SyncCommand;
+use Touhidurabir\EnvLens\Console\ValidateCommand;
 use Touhidurabir\EnvLens\Env\EnvWriter;
 use Touhidurabir\EnvLens\Mutation\EnvGenerator;
 use Touhidurabir\EnvLens\Mutation\EnvSynchronizer;
@@ -23,6 +25,8 @@ use Touhidurabir\EnvLens\Scanning\ConfigScanner;
 use Touhidurabir\EnvLens\Scanning\UsageScanner;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 use Touhidurabir\EnvLens\Support\ProductionGuard;
+use Touhidurabir\EnvLens\Validation\EnvValidator;
+use Touhidurabir\EnvLens\Validation\RuleInferrer;
 
 class EnvLensServiceProvider extends ServiceProvider
 {
@@ -49,12 +53,15 @@ class EnvLensServiceProvider extends ServiceProvider
         $this->app->singleton(ProductionGuard::class, fn (Application $app): ProductionGuard => new ProductionGuard(
             $app,
             $this->stringList('envlens.production_environments'),
+            (string) config('envlens.files.source', '.env'),
         ));
         $this->app->singleton(EnvAnalyzer::class, fn (Application $app): EnvAnalyzer => new EnvAnalyzer(
             $app->make(SensitivityDetector::class),
             $this->stringList('envlens.cleanup.keep'),
             $this->stringList('envlens.scan.allow_env_outside_config'),
             $this->stringList('envlens.required'),
+            $this->stringList('envlens.optional'),
+            $this->stringList('envlens.ci.allow_values'),
         ));
         $this->app->singleton(EnvGenerator::class, fn (Application $app): EnvGenerator => new EnvGenerator(
             $app->make(SensitivityDetector::class),
@@ -65,6 +72,14 @@ class EnvLensServiceProvider extends ServiceProvider
             $this->stringList('envlens.cleanup.keep'),
             $this->stringList('envlens.generate.skip_defaults'),
         ));
+        $this->app->singleton(EnvValidator::class, fn (Application $app): EnvValidator => new EnvValidator(
+            $app->make(SensitivityDetector::class),
+            $app->make(Factory::class),
+        ));
+        $this->app->singleton(RuleInferrer::class, fn (Application $app): RuleInferrer => new RuleInferrer(
+            $app->make(EnvAnalyzer::class),
+            $app->make(SensitivityDetector::class),
+        ));
         $this->app->singleton(EnvLens::class, fn (Application $app): EnvLens => new EnvLens(
             $app->make(UsageScanner::class),
             $app->make(SensitivityDetector::class),
@@ -73,13 +88,15 @@ class EnvLensServiceProvider extends ServiceProvider
             $app->make(EnvAnalyzer::class),
             $app->make(EnvGenerator::class),
             $app->make(EnvSynchronizer::class),
+            $app->make(EnvValidator::class),
+            $app->make(RuleInferrer::class),
         ));
     }
 
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->commands([KeysCommand::class, CompareCommand::class, AuditCommand::class, ExplainCommand::class, GenerateCommand::class, SyncCommand::class, CleanupCommand::class]);
+            $this->commands([KeysCommand::class, CompareCommand::class, AuditCommand::class, ExplainCommand::class, GenerateCommand::class, SyncCommand::class, CleanupCommand::class, ValidateCommand::class]);
 
             $this->publishes([
                 __DIR__.'/../config/envlens.php' => config_path('envlens.php'),

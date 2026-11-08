@@ -13,6 +13,8 @@ use Touhidurabir\EnvLens\Scanning\UsageIndex;
 use Touhidurabir\EnvLens\Scanning\UsageScanner;
 use Touhidurabir\EnvLens\Security\SensitivityDetector;
 use Touhidurabir\EnvLens\Support\ProductionGuard;
+use Touhidurabir\EnvLens\Validation\EnvValidator;
+use Touhidurabir\EnvLens\Validation\RuleInferrer;
 
 final class EnvLens
 {
@@ -24,7 +26,19 @@ final class EnvLens
         private readonly EnvAnalyzer $analyzer,
         private readonly EnvGenerator $generator,
         private readonly EnvSynchronizer $synchronizer,
+        private readonly EnvValidator $validator,
+        private readonly RuleInferrer $inferrer,
     ) {}
+
+    public function inferrer(): RuleInferrer
+    {
+        return $this->inferrer;
+    }
+
+    public function validator(): EnvValidator
+    {
+        return $this->validator;
+    }
 
     public function file(string $path): EnvFile
     {

@@ -19,11 +19,13 @@ final class UsageIndex
      * @param  list<string>  $warnings
      * @param  list<string>  $backgroundPackages  vendor packages scanned only so their keys count as used;
      *                                            their usages are not reported on their own
+     * @param  list<string>  $directReads  keys read with getenv(), $_ENV or $_SERVER
      */
     public function __construct(
         private readonly array $usages,
         private readonly array $warnings = [],
         private readonly array $backgroundPackages = [],
+        private readonly array $directReads = [],
     ) {
         foreach ($usages as $usage) {
             if ($usage->key === null) {
@@ -147,6 +149,24 @@ final class UsageIndex
         $usages = $this->for($key);
 
         return $usages !== [] && $usages === $this->codeUsages($key);
+    }
+
+    /** True when something reads the key with getenv(), $_ENV or $_SERVER rather than env(). */
+    public function isReadDirectly(string $key): bool
+    {
+        return in_array($key, $this->directReads, true);
+    }
+
+    /** True when Laravel's own config reads the key, so it is a known framework key, not an app addition. */
+    public function isReadByFramework(string $key): bool
+    {
+        foreach ($this->for($key) as $usage) {
+            if ($usage->source === UsageSource::Vendor && $usage->package === UsageScanner::FRAMEWORK_PACKAGE) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** True when at least one usage (keyed or dynamic) came from the app's config files. */

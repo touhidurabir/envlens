@@ -21,7 +21,7 @@ it('exits 1 by default when errors are found and prints findings', function () {
 
 it('prints a header and a verdict badge', function () {
     expect(audit(['--path' => fixtureProject('basic')], 1))
-        ->toContain('Auditing .env against .env.example · 4 config files, 4 code files scanned')
+        ->toContain('Auditing .env against .env.example · 4 config files and 4 code files read env()')
         ->toMatch('/FAIL\s+0 errors|FAIL\s+\d+ errors · \d+ warnings · \d+ info \(exit 1, --fail-on=error\)/');
 
     expect(audit(['--path' => fixtureProject('basic'), '--fail-on' => 'none']))->toMatch('/WARN\s+\d+ errors/');
@@ -178,4 +178,25 @@ it('prints a scanner warning once, as a scan-warning finding', function () {
 
     expect(substr_count($output, 'Could not parse config/syntax.php'))->toBe(1)
         ->and($output)->toMatch('/WARN\s+scan-warning \(1\)\s+Could not parse config\/syntax\.php/');
+});
+
+it('puts a secret committed in the example file first, without its value', function () {
+    $path = fixtureProject('basic');
+    file_put_contents($path.'/.env.example', "\n# STRIPE_SECRET=sk_live_marker\n", FILE_APPEND);
+
+    $output = audit(['--path' => $path, '--fail-on' => 'none']);
+
+    expect($output)->toContain('1. Blank 1 real-looking secret in the example file (.env.example:14) and rotate it')
+        ->toMatch('/WARN\s+example-secret \(1\)/')
+        ->toMatch('/example-secret\s+a sensitive key has a real-looking value/')
+        ->not->toContain('sk_live_marker');
+});
+
+it('exits 2 when a named example file does not exist, but only warns about the default one', function () {
+    $path = fixtureProject('basic');
+
+    expect(audit(['--path' => $path, '--example' => '.env.nope'], 2))->toContain('File not found: .env.nope');
+
+    unlink($path.'/.env.example');
+    expect(audit(['--path' => $path, '--fail-on' => 'none']))->toContain('no-example');
 });

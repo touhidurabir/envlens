@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Filesystem\Filesystem;
 use Touhidurabir\EnvLens\Scanning\CodeScanner;
 use Touhidurabir\EnvLens\Scanning\ConfigScanner;
+use Touhidurabir\EnvLens\Scanning\DefaultKind;
+use Touhidurabir\EnvLens\Scanning\EnvUsage;
 use Touhidurabir\EnvLens\Scanning\UsageIndex;
 use Touhidurabir\EnvLens\Scanning\UsageScanner;
 use Touhidurabir\EnvLens\Scanning\UsageSource;
@@ -110,4 +112,32 @@ it('warns when no config files were scanned', function () {
 
     expect($index->hasConfigUsages())->toBeFalse()
         ->and(implode("\n", $index->warnings()))->toContain('No config files were scanned');
+});
+
+it('knows whether Laravel framework config reads a key', function () {
+    $framework = new EnvUsage('A', 'vendor/laravel/framework/config/a.php', 1, UsageSource::Vendor, 'a', DefaultKind::None, null, null, 'laravel/framework');
+    $other = new EnvUsage('B', 'vendor/acme/pkg/config/b.php', 1, UsageSource::Vendor, 'b', DefaultKind::None, null, null, 'acme/pkg');
+    $index = new UsageIndex([$framework, $other]);
+
+    expect($index->isReadByFramework('A'))->toBeTrue()
+        ->and($index->isReadByFramework('B'))->toBeFalse()
+        ->and($index->isReadByFramework('C'))->toBeFalse();
+});
+
+it('finds getenv() and superglobal reads, in code and config', function () {
+    $base = sys_get_temp_dir().'/envlens-direct-'.uniqid();
+    mkdir($base.'/app', 0777, true);
+    mkdir($base.'/config', 0777, true);
+    $GLOBALS['envLensTempDirs'][] = $base;
+    file_put_contents($base.'/app/A.php', "<?php\ngetenv('VIA_GETENV');\n\\getenv('VIA_ROOT');\n\$_ENV['VIA_ENV'];\n\$_SERVER['VIA_SERVER'];\ngetenv(\$dynamic);\n\$_ENV[\$dynamic];\n\$obj->getenv('NOT_THIS');\n");
+    file_put_contents($base.'/config/a.php', "<?php\nreturn ['x' => getenv('VIA_CONFIG')];\n");
+
+    $scan = ['config_paths' => ['config'], 'code_paths' => ['app'], 'exclude' => []];
+    $index = (new UsageScanner(new ConfigScanner, new CodeScanner, $scan))->scan($base, false);
+
+    foreach (['VIA_GETENV', 'VIA_ROOT', 'VIA_ENV', 'VIA_SERVER', 'VIA_CONFIG'] as $key) {
+        expect($index->isReadDirectly($key))->toBeTrue();
+    }
+
+    expect($index->isReadDirectly('NOT_THIS'))->toBeFalse()->and($index->isUsed('VIA_GETENV'))->toBeFalse();
 });

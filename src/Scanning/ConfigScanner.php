@@ -19,16 +19,17 @@ use SplObjectStorage;
 final class ConfigScanner
 {
     /**
-     * @return array{usages: list<EnvUsage>, warnings: list<string>, files: int} files: PHP files found
+     * @return array{usages: list<EnvUsage>, warnings: list<string>, files: int, direct: list<string>} files: PHP files found
      */
     public function scan(string $basePath, string $configDir, UsageSource $source = UsageSource::Config, ?string $package = null): array
     {
         $usages = [];
         $warnings = [];
+        $direct = [];
 
         $realConfigDir = is_dir($configDir) ? realpath($configDir) : false;
         if ($realConfigDir === false) {
-            return ['usages' => $usages, 'warnings' => $warnings, 'files' => 0];
+            return ['usages' => $usages, 'warnings' => $warnings, 'files' => 0, 'direct' => $direct];
         }
         $configDir = $realConfigDir;
         $basePath = realpath($basePath) ?: $basePath;
@@ -54,6 +55,9 @@ final class ConfigScanner
 
                 continue;
             }
+
+            EnvCallExtractor::connectParents($stmts);
+            array_push($direct, ...EnvCallExtractor::directReads($stmts));
 
             $prefix = str_replace('/', '.', substr($this->relative($configDir, $path), 0, -4));
 
@@ -85,7 +89,7 @@ final class ConfigScanner
             $record(new Node\Stmt\Block($stmts), null);
         }
 
-        return ['usages' => $usages, 'warnings' => $warnings, 'files' => count($files)];
+        return ['usages' => $usages, 'warnings' => $warnings, 'files' => count($files), 'direct' => $direct];
     }
 
     /**

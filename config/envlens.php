@@ -7,10 +7,14 @@ return [
     // A config key read without a default (or with null) is only "required" when it is listed
     // in the example file or matches a glob here; otherwise a missing value is just informational.
     'required' => [],
+    // Keys that are never required and that env:audit --ci never asks the example file to list, even
+    // when config reads them with no default. Listed by default: stock Laravel reads these two for
+    // optional mail providers. envlens.required beats this list.
+    'optional' => ['POSTMARK_API_KEY', 'RESEND_API_KEY'],
     'sensitive' => [
-        'keys' => ['APP_KEY'],
-        'patterns' => ['*_KEY', '*_SECRET', '*_SECRET_*', '*_PASSWORD', '*_PASS', '*_TOKEN', '*_PRIVATE*', '*_DSN', '*_CREDENTIALS*', '*_SALT', '*_PASSPHRASE', '*_PWD', '*_AUTH', '*_WEBHOOK*'],
-        'except' => ['*_PUBLIC_KEY', 'VITE_*_KEY'],
+        'keys' => ['APP_KEY', 'PASSWORD', 'SECRET', 'TOKEN', 'BEARER'],
+        'patterns' => ['*_KEY', '*_SECRET', '*_SECRET_*', '*_PASSWORD', '*_PASS', '*_TOKEN', '*_PRIVATE*', '*_DSN', '*_CREDENTIALS*', '*_SALT', '*_PASSPHRASE', '*_PWD', '*_AUTH', '*_WEBHOOK*', '*_PASSWD', '*APIKEY', '*_PASSWORD_*', '*_TOKEN_*', '*_KEY_*', '*_BEARER', '*AUTH_HEADER*'],
+        'except' => ['*_PUBLIC_KEY', 'VITE_*_KEY', 'AUTH_PASSWORD_*', '*_TOKEN_TABLE', '*_TOKEN_TTL', '*_TOKEN_LIFETIME', '*_KEY_PREFIX'],
     ],
     'scan' => [
         'config_paths' => ['config'], // relative to the project base path, or absolute
@@ -33,4 +37,6 @@ return [
     // Keys that never get a config-default placeholder in env:generate / env:sync.
     'generate' => ['skip_defaults' => ['APP_ENV', 'APP_DEBUG']],
     'production_environments' => ['production'],
+    // Keys whose non-empty value in the example file is intended, so it is not reported as example-secret.
+    'ci' => ['allow_values' => []],
 ];

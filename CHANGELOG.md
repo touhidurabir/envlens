@@ -6,6 +6,58 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-08
+
+### Added
+- `env:audit --ci`: the gate for pull requests. It checks config and code against the example file alone, with no `.env`
+  or secrets, and a stock Laravel 12 or 13 app passes with no setup. New findings: `undeclared-key` (config reads a key
+  with no default that the example doesn't list) and `example-secret`. A file that can't be scanned is an error, and
+  finding no `env()` reads in config exits 2 whatever `--fail-on` says.
+- `env:audit --ci --update-baseline`: accepts current findings in `envlens-baseline.json`, so an existing app can adopt
+  the gate and only new findings block. Secrets, syntax errors and scan failures are never accepted. Adds `stale-baseline`.
+- GitHub annotations from `env:audit` and `env:validate` inside GitHub Actions, errors first.
+- `env:validate`: checks values against rules in `env.rules.php`, and works with no rules file by inferring checks from
+  config defaults. Inferred checks warn unless `--strict`; rules in the file fail. Sensitive keys show only the rule's name.
+- `env:validate --init`: generates `env.rules.php`, showing the assumption behind each rule first. Each key gets its own
+  array of rules, with the assumption above it.
+- `env:validate` lists the rules it checks before the result, with where each came from. `--show-rules-only` shows that
+  list without checking any values.
+- `optional` and `ci.allow_values` config keys. `validator()` and `inferrer()` on the facade, and `EnvAnalyzer::contract()`.
+- `illuminate/validation` as a dependency (Laravel apps already have it).
+- `data.baselined` in `env:audit --json`.
+
+### Changed
+These affect `env:audit` without `--ci`:
+- It reports `example-secret` as a warning when a sensitive key has a real-looking value in the example file.
+- A key matching `optional` is no longer required, even when the example lists it. By default that covers
+  `POSTMARK_API_KEY` and `RESEND_API_KEY`. This also applies to `env:keys` and `env:compare`.
+- Inside GitHub Actions it prints annotation lines.
+
+Other changes:
+- The default secret names are wider: `PASSWORD`, `SECRET`, `TOKEN`, `BEARER`, `*_PASSWD`, `*APIKEY`, `*_PASSWORD_*`,
+  `*_TOKEN_*`, `*_KEY_*`, `*_BEARER`, `*AUTH_HEADER*`, with exceptions such as `AUTH_PASSWORD_*`. More keys are masked and
+  never copied, including `AWS_ACCESS_KEY_ID`. **If you published the config, it keeps its old lists**: add these yourself.
+- `env:cleanup` refuses to write when a file couldn't be scanned, and mirror mode refuses an empty scan as `--unused` does.
+- `env:cleanup` keeps a comment that starts a block and heads several keys until the last of them goes.
+- With no terminal, every command is non-interactive, as `-n` would make it.
+- A named `--example` that doesn't exist is exit 2 on `env:audit`.
+- The header of `env:audit` says how many files read `env()`, which is what it always counted.
+
+### Fixed
+- **Secrets:** `env:generate` copied commented-out secrets behind `##`, `#;` or `#-`, or inside a comment's words, and it and
+  `env:sync` wrote a config default holding credentials. The default of a runtime-built `env()` key was shown unmasked in JSON.
+- **Production guard:** `./.env` and `app/../.env` when the file didn't exist yet, and `.ENV`, got past the guard on the app's
+  env file. It also read `APP_ENV` only from `.env` rather than `files.source`, and an empty `production_environments`
+  counted everything as production.
+- **Scanner:** in Blade, `env()` in a comment or in plain text was reported, and `\env('X')`, `env ('X')` and runtime-built keys
+  were missed. `env('X') ?? 'y'` and `env('X') ?: 'y'` now count as having a default. A float default such as `1.0` stays a float.
+  Keys read through `getenv()`, `$_ENV` or `$_SERVER` count as used, so cleanup no longer removes them.
+- **Parsing:** a byte order mark, keys starting with a digit and a key with no equals sign are accepted, as in phpdotenv.
+- `env:generate` lists every line an unterminated quote swallows, not just the first.
+- `--json` printed a blank line when a value wasn't valid UTF-8.
+- The 1.0.0 links in this file pointed at a `v1.0.0` tag; the tag is `1.0.0`.
+- The README's CI recipe couldn't catch a forgotten key or a secret in the example. It now uses `--ci`.
+
 ## [1.0.0] - 2026-10-28
 
 ### Added
@@ -50,5 +102,6 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
   `status` / `resolves` and suggestions.
 - `EnvLens` facade for using the scanning, analysis and mutation services programmatically.
 
-[Unreleased]: https://github.com/touhidurabir/envlens/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/touhidurabir/envlens/releases/tag/v1.0.0
+[Unreleased]: https://github.com/touhidurabir/envlens/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/touhidurabir/envlens/compare/1.0.0...1.1.0
+[1.0.0]: https://github.com/touhidurabir/envlens/releases/tag/1.0.0

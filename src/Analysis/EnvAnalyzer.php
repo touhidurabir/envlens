@@ -18,8 +18,9 @@ use Touhidurabir\EnvLens\Support\Glob;
  * masked. Literal config defaults of sensitive keys are masked inside usages.
  *
  * Required: a key is required only when the index says it is config-required (a Config usage
- * without a default, and no default anywhere) AND the team declared it, by listing it in the
- * example file or in `envlens.required`. Otherwise an absent key is optional.
+ * without a default, and no default anywhere) AND the team declared it, by matching
+ * `envlens.required`, or by listing it in the example file without matching `envlens.optional`.
+ * Otherwise an absent key is optional.
  */
 final class EnvAnalyzer
 {
@@ -27,12 +28,16 @@ final class EnvAnalyzer
      * @param  list<string>  $externalPatterns  keys set by tooling outside the app (cleanup.keep)
      * @param  list<string>  $allowOutsideConfig  globs of relative paths allowed to call env()
      * @param  list<string>  $required  globs of keys declared required (envlens.required)
+     * @param  list<string>  $optional  globs of keys that are never required (envlens.optional)
+     * @param  list<string>  $allowValues  globs of keys allowed a value in the example file (envlens.ci.allow_values)
      */
     public function __construct(
         private readonly SensitivityDetector $sensitivity,
         private readonly array $externalPatterns,
         private readonly array $allowOutsideConfig,
         private readonly array $required = [],
+        private readonly array $optional = [],
+        private readonly array $allowValues = [],
     ) {}
 
     /**
@@ -142,15 +147,7 @@ final class EnvAnalyzer
             $status = $this->statusInFile($key, $index);
 
             if ($status === KeyStatus::Unused) {
-                $findings[] = new Finding(
-                    FindingCode::UnusedKey,
-                    "{$key} is defined in {$label} but nothing references it",
-                    $key,
-                    $file->path(),
-                    $this->firstLine($file, $key),
-                    "{$label}:{$this->firstLine($file, $key)}",
-                    'Remove it (php artisan env:cleanup --unused), or add it to envlens.cleanup.keep if something outside PHP reads it.',
-                );
+                $findings[] = $this->unused($key, $file);
             } elseif ($status === KeyStatus::Used && $file->isEmpty($key) && $index->isUsed($key)) {
                 $findings[] = new Finding(
                     FindingCode::EmptyValue,
@@ -164,17 +161,7 @@ final class EnvAnalyzer
             }
         }
 
-        foreach ($file->syntaxErrors() as $error) {
-            $findings[] = new Finding(
-                FindingCode::Syntax,
-                "Syntax error in {$label} line {$error->line}: {$error->message}",
-                null,
-                $file->path(),
-                $error->line,
-                preg_replace('/^Failed to parse dotenv file\.\s*/', '', $error->message) ?? $error->message,
-                "Fix line {$error->line} of {$label}.",
-            );
-        }
+        array_push($findings, ...$this->syntaxFindings($file));
 
         if ($example === null) {
             $optional = count(array_filter($findings, static fn (Finding $f): bool => $f->code === FindingCode::MissingOptional));
@@ -222,17 +209,59 @@ final class EnvAnalyzer
             }
         }
 
+        if ($example !== null) {
+            array_push($findings, ...$this->exampleSecrets($example));
+        }
+
         foreach ($index->warnings() as $warning) {
             $findings[] = new Finding(FindingCode::ScanWarning, $warning, hint: 'Fix the file so EnvLens can scan it.');
         }
 
-        $byFile = [];
-        foreach ($index->reportable() as $usage) {
-            $byFile[$usage->file][] = $this->maskUsage($usage);
-        }
-        ksort($byFile);
+        return new AuditReport($this->usagesByFile($index), $findings);
+    }
 
-        return new AuditReport($byFile, $findings);
+    /**
+     * Checks config and code against the example file alone, with no real env file: the checks that
+     * need real values (empty-value, missing-*, example-drift) cannot run, and because this is a gate,
+     * a file that could not be scanned is an error rather than a warning.
+     */
+    public function contract(EnvFile $example, UsageIndex $index): AuditReport
+    {
+        $findings = [];
+
+        foreach ($index->all() as $usage) {
+            if ($usage->source === UsageSource::Code && ! Glob::matchesAny($this->allowOutsideConfig, $usage->file)) {
+                $findings[] = $this->outsideConfig($usage);
+            }
+        }
+
+        foreach ($index->keys() as $key) {
+            if ($this->isUndeclared($key, $example, $index)) {
+                $findings[] = $this->undeclared($key, $example, $index);
+            }
+        }
+
+        foreach ($index->dynamic() as $usage) {
+            $findings[] = $this->dynamic($usage);
+        }
+
+        foreach ($example->duplicates() as $key => $lines) {
+            $findings[] = $this->duplicate((string) $key, $lines, $example);
+        }
+
+        foreach ($example->keys() as $key) {
+            if ($this->statusInFile($key, $index) === KeyStatus::Unused) {
+                $findings[] = $this->unused($key, $example);
+            }
+        }
+
+        array_push($findings, ...$this->syntaxFindings($example), ...$this->exampleSecrets($example, Severity::Error));
+
+        foreach ($index->warnings() as $warning) {
+            $findings[] = new Finding(FindingCode::ScanWarning, $warning, hint: 'Fix the file so EnvLens can scan it.', severityOverride: Severity::Error);
+        }
+
+        return new AuditReport($this->usagesByFile($index), $findings);
     }
 
     /**
@@ -335,7 +364,7 @@ final class EnvAnalyzer
             $status,
             $this->resolves($primary, $key, $usages, $dynamic),
             array_map($this->maskUsage(...), $overridden),
-            $dynamic,
+            array_map($this->maskUsage(...), $dynamic),
             $values,
             $status === null && $dynamic === [] ? $this->suggestions($key, $index, $files) : [],
         );
@@ -424,11 +453,18 @@ final class EnvAnalyzer
         return array_slice(array_map('strval', array_keys($scores)), 0, 3);
     }
 
-    /** Config-required (see UsageIndex::isRequired) and declared by the team. */
-    private function isRequired(string $key, UsageIndex $index, ?EnvFile $example): bool
+    /** Config-required (see UsageIndex::isRequired) and declared by the team; envlens.required beats envlens.optional. */
+    public function isRequired(string $key, UsageIndex $index, ?EnvFile $example): bool
     {
-        return $index->isRequired($key)
-            && (Glob::matchesAny($this->required, $key) || ($example !== null && $example->has($key)));
+        if (! $index->isRequired($key)) {
+            return false;
+        }
+
+        if (Glob::matchesAny($this->required, $key)) {
+            return true;
+        }
+
+        return $example !== null && $example->has($key) && ! Glob::matchesAny($this->optional, $key);
     }
 
     private function missingCode(string $key, UsageIndex $index, ?EnvFile $example): FindingCode
@@ -450,6 +486,7 @@ final class EnvAnalyzer
             $code === FindingCode::MissingRequired => "{$key} is required by config{$paths} but missing from {$label}",
             $code === FindingCode::MissingWithDefault => "{$key} is missing from {$label} but has a default{$paths}",
             $index->isCodeOnly($key) => "{$key} is used in code but not set in {$label}",
+            Glob::matchesAny($this->optional, $key) => "{$key} is read without a default{$paths} but is optional (envlens.optional); not set in {$label}",
             default => "{$key} is read without a default{$paths} but is optional (not in the example file or envlens.required); not set in {$label}",
         };
 
@@ -462,6 +499,134 @@ final class EnvAnalyzer
         return new Finding($code, $message, $key, $file->path(), null, $this->pathsDetail($index, $key), $hint);
     }
 
+    /** App config reads it with no default, and nothing tells teammates about it. */
+    private function isUndeclared(string $key, EnvFile $example, UsageIndex $index): bool
+    {
+        return $index->isRequired($key)
+            && ! $example->has($key)
+            && ! $index->isReadByFramework($key)
+            && (Glob::matchesAny($this->required, $key) || ! Glob::matchesAny($this->optional, $key));
+    }
+
+    private function undeclared(string $key, EnvFile $example, UsageIndex $index): Finding
+    {
+        $label = $this->label($example);
+        $usage = null;
+
+        foreach ($index->for($key) as $candidate) {
+            if ($candidate->source === UsageSource::Config) {
+                $usage = $candidate;
+
+                break;
+            }
+        }
+
+        return new Finding(
+            FindingCode::UndeclaredKey,
+            "{$key} is read by config{$this->pathsSuffix($index, $key)} with no default, but {$label} does not list it",
+            $key,
+            $usage?->file,
+            $usage?->line,
+            $usage !== null ? "{$usage->file}:{$usage->line}" : null,
+            "Add {$key}= to {$label}, and also list it in envlens.optional if it is not required.",
+        );
+    }
+
+    private function unused(string $key, EnvFile $file): Finding
+    {
+        $label = $this->label($file);
+        $line = $this->firstLine($file, $key);
+
+        return new Finding(
+            FindingCode::UnusedKey,
+            "{$key} is defined in {$label} but nothing references it",
+            $key,
+            $file->path(),
+            $line,
+            "{$label}:{$line}",
+            'Remove it (php artisan env:cleanup --unused), or add it to envlens.cleanup.keep if something outside PHP reads it.',
+        );
+    }
+
+    /**
+     * @return list<Finding>
+     */
+    private function syntaxFindings(EnvFile $file): array
+    {
+        $label = $this->label($file);
+        $findings = [];
+
+        foreach ($file->syntaxErrors() as $error) {
+            $findings[] = new Finding(
+                FindingCode::Syntax,
+                "Syntax error in {$label} line {$error->line}: {$error->message}",
+                null,
+                $file->path(),
+                $error->line,
+                preg_replace('/^Failed to parse dotenv file\.\s*/', '', $error->message) ?? $error->message,
+                "Fix line {$error->line} of {$label}.",
+            );
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Usages worth reporting, by file, with sensitive defaults masked.
+     *
+     * @return array<string, list<EnvUsage>>
+     */
+    private function usagesByFile(UsageIndex $index): array
+    {
+        $byFile = [];
+
+        foreach ($index->reportable() as $usage) {
+            $byFile[$usage->file][] = $this->maskUsage($usage);
+        }
+
+        ksort($byFile);
+
+        return $byFile;
+    }
+
+    /**
+     * Sensitive keys with a real-looking value in the example file. Every line counts, not just the
+     * value that wins: a commented-out or overridden secret is committed all the same. Findings
+     * name the key and line only, never the value.
+     *
+     * @return list<Finding>
+     */
+    private function exampleSecrets(EnvFile $example, ?Severity $severity = null): array
+    {
+        $label = $this->label($example);
+        $findings = [];
+
+        foreach ($example->assignments() as $line) {
+            $key = (string) $line->key;
+            $value = (string) $line->value;
+
+            if ($value === ''
+                || ! $this->sensitivity->isSensitive($key, $value)
+                || $this->sensitivity->isPlaceholder($value)
+                || Glob::matchesAny($this->allowValues, $key)) {
+                continue;
+            }
+
+            $findings[] = new Finding(
+                FindingCode::ExampleSecret,
+                "{$key} has a real-looking value in {$label} (line {$line->line})",
+                $key,
+                $example->path(),
+                $line->line,
+                "{$label}:{$line->line}",
+                "Blank the value in {$label} and rotate the secret: it stays in git history. If it is meant to be there, list {$key} in envlens.ci.allow_values.",
+                $severity,
+            );
+        }
+
+        return $findings;
+    }
+
     /** The config paths that read a key, or where code reads it. */
     private function pathsDetail(UsageIndex $index, string $key): string
     {
@@ -472,7 +637,7 @@ final class EnvAnalyzer
 
     private function statusInFile(string $key, UsageIndex $index): KeyStatus
     {
-        if ($index->isUsed($key) || $index->isProtectedByDynamic($key)) {
+        if ($index->isUsed($key) || $index->isProtectedByDynamic($key) || $index->isReadDirectly($key)) {
             return KeyStatus::Used;
         }
 
@@ -498,6 +663,10 @@ final class EnvAnalyzer
 
         if ($sources === [] && $index->isProtectedByDynamic($key)) {
             $sources[] = 'dynamic';
+        }
+
+        if ($sources === [] && $index->isReadDirectly($key)) {
+            $sources[] = 'code';
         }
 
         return array_values(array_unique($sources));
@@ -528,7 +697,14 @@ final class EnvAnalyzer
 
     private function maskUsage(EnvUsage $usage): EnvUsage
     {
-        if ($usage->key === null || $usage->defaultValue === null || ! $this->sensitivity->isSensitive($usage->key, $usage->defaultValue)) {
+        if ($usage->defaultValue === null) {
+            return $usage;
+        }
+
+        // A runtime-built key is judged by the shape of its name; one with no known shape could be anything.
+        $name = $usage->key ?? ($usage->dynamicPattern !== null ? str_replace('*', 'X', $usage->dynamicPattern) : null);
+
+        if ($name !== null && ! $this->sensitivity->isSensitive($name, $usage->defaultValue)) {
             return $usage;
         }
 

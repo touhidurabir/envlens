@@ -18,13 +18,16 @@ enum FindingCode: string
     case NoExample = 'no-example';
     case ExampleDrift = 'example-drift';
     case ScanWarning = 'scan-warning';
+    case ExampleSecret = 'example-secret';
+    case UndeclaredKey = 'undeclared-key';
+    case StaleBaseline = 'stale-baseline';
 
     public function severity(): Severity
     {
         return match ($this) {
-            self::EnvOutsideConfig, self::MissingRequired, self::Syntax => Severity::Error,
-            self::EmptyValue, self::DynamicKey, self::DuplicateKey, self::NoExample, self::ExampleDrift, self::ScanWarning => Severity::Warning,
-            self::UnusedKey, self::MissingWithDefault, self::MissingOptional => Severity::Info,
+            self::EnvOutsideConfig, self::MissingRequired, self::Syntax, self::UndeclaredKey => Severity::Error,
+            self::EmptyValue, self::DynamicKey, self::DuplicateKey, self::NoExample, self::ExampleDrift, self::ScanWarning, self::ExampleSecret => Severity::Warning,
+            self::UnusedKey, self::MissingWithDefault, self::MissingOptional, self::StaleBaseline => Severity::Info,
         };
     }
 
@@ -32,8 +35,9 @@ enum FindingCode: string
     public function priority(): int
     {
         return match ($this) {
+            self::ExampleSecret => 0,
             self::Syntax => 1,
-            self::MissingRequired => 2,
+            self::MissingRequired, self::UndeclaredKey => 2,
             self::EmptyValue => 3,
             self::EnvOutsideConfig => 4,
             self::DuplicateKey => 5,
@@ -44,6 +48,7 @@ enum FindingCode: string
             self::UnusedKey => 10,
             self::MissingOptional => 11,
             self::MissingWithDefault => 12,
+            self::StaleBaseline => 13,
         };
     }
 
@@ -51,7 +56,9 @@ enum FindingCode: string
     public function meaning(): string
     {
         return match ($this) {
+            self::ExampleSecret => 'a sensitive key has a real-looking value in the example file, which is committed',
             self::Syntax => 'a line in the env file could not be parsed',
+            self::UndeclaredKey => 'config reads it with no default, but the example file does not list it',
             self::MissingRequired => 'config reads it with no default, it is declared required, and the file lacks it',
             self::EmptyValue => "set but empty: env() returns '' and the config default is not used",
             self::EnvOutsideConfig => 'env() called outside config/; it returns null once config is cached',
@@ -63,6 +70,7 @@ enum FindingCode: string
             self::UnusedKey => 'defined, but nothing reads it',
             self::MissingOptional => 'not set and read without a default, but not declared required',
             self::MissingWithDefault => 'not set; config falls back to its default (usually fine)',
+            self::StaleBaseline => 'accepted in the baseline, but no longer reported',
         };
     }
 }

@@ -189,10 +189,22 @@ final class EnvWriter
 
             $drop[$i] = true;
 
-            if ($this->option('remove_attached_comments', true)) {
-                for ($j = $i - 1; $j >= 0 && $lines[$j]->type === EnvEntryType::Comment; $j--) {
-                    $drop[$j] = true;
-                }
+            if (! $this->option('remove_attached_comments', true)) {
+                continue;
+            }
+
+            $top = $i;
+            while (($lines[$top - 1] ?? null)?->type === EnvEntryType::Comment) {
+                $top--;
+            }
+
+            // A comment that starts a block and runs into more than one key is a section heading, so it
+            // stays until the last of those keys goes.
+            $startsBlock = in_array(($lines[$top - 1] ?? null)?->type, [null, EnvEntryType::Blank], true);
+            $headsOthers = $startsBlock && ($lines[$i + 1] ?? null)?->type === EnvEntryType::Key;
+
+            for ($j = $top; $j < $i && ! $headsOthers; $j++) {
+                $drop[$j] = true;
             }
         }
 

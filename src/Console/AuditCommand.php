@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace Touhidurabir\EnvLens\Console;
 
 use Touhidurabir\EnvLens\Analysis\AuditReport;
+use Touhidurabir\EnvLens\Analysis\Baseline;
 use Touhidurabir\EnvLens\Analysis\Finding;
 use Touhidurabir\EnvLens\Analysis\FindingCode;
 use Touhidurabir\EnvLens\Analysis\Severity;
+use Touhidurabir\EnvLens\Console\Concerns\WritesAnnotations;
 use Touhidurabir\EnvLens\Env\EnvFile;
+use Touhidurabir\EnvLens\Exceptions\InvalidBaseline;
 use Touhidurabir\EnvLens\Scanning\UsageSource;
+use Touhidurabir\EnvLens\Support\CiEnvironment;
 
 use function Termwind\render;
 use function Termwind\renderUsing;
 
 final class AuditCommand extends EnvLensCommand
 {
+    use WritesAnnotations;
+
     /** How many steps "Fix first" lists before pointing at the findings. */
     private const STEPS = 5;
 
@@ -24,6 +30,8 @@ final class AuditCommand extends EnvLensCommand
         {--example= : Example env file (default: envlens.files.example)}
         {--vendor : Also scan the config of every vendor package and report framework usage in full}
         {--fail-on=error : Exit 1 at this severity or worse (error|warning|info|none)}
+        {--ci : Check config and code against the example file alone; needs no .env}
+        {--update-baseline : With --ci, accept current findings in envlens-baseline.json so only new ones block}
         {--json : Output JSON}
         {--path= : Project base path}';
 
@@ -40,9 +48,20 @@ final class AuditCommand extends EnvLensCommand
             return 2;
         }
 
+        if ($this->option('ci')) {
+            return $this->performCi($failOn, $level);
+        }
+
+        if ($this->option('update-baseline')) {
+            $this->error('--update-baseline needs --ci.');
+
+            return 2;
+        }
+
         $file = $this->envFile($this->stringOption('file', $this->sourceName()));
         $exampleName = $this->stringOption('example', $this->exampleName());
-        $example = $this->envFile($exampleName, false);
+        // A file you named has to exist; the default example file is allowed not to, and is reported.
+        $example = $this->envFile($exampleName, $this->option('example') !== null);
         $exampleFile = $example->path() !== null && is_file($example->path()) ? $example : null;
 
         // Scanner warnings become scan-warning findings, so they are not printed separately.
@@ -53,14 +72,151 @@ final class AuditCommand extends EnvLensCommand
             return $this->json('env:audit', $report, $exit);
         }
 
+        $label = $this->label($file);
+        $against = $exampleFile !== null ? " against <fg=cyan>{$this->label($exampleFile)}</>" : ' <fg=yellow>(no example file)</>';
+
+        return $this->renderReport($report, $file, "Auditing <fg=cyan>{$label}</>{$against}", '', $exit, $failOn);
+    }
+
+    /** The CI gate: the example file is the contract, and nothing reads a real env file. */
+    private function performCi(string $failOn, ?Severity $level): int
+    {
+        if ($this->option('file') !== null) {
+            $this->error('--ci checks the example file, so it cannot be combined with --file.');
+
+            return 2;
+        }
+
+        $example = $this->envFile($this->stringOption('example', $this->exampleName()));
+        $index = $this->index(false);
+
+        if (! $index->hasConfigUsages()) {
+            $this->error('No env() reads were found in config, so there is nothing to check. Set envlens.scan.config_paths if your config lives elsewhere.');
+
+            return 2;
+        }
+
+        $report = $this->lens()->analyzer()->contract($example, $index);
+        $baselinePath = $this->basePath().'/'.Baseline::FILE;
+
+        if ($this->option('update-baseline')) {
+            return $this->updateBaseline($report, $baselinePath);
+        }
+
+        try {
+            $baseline = Baseline::load($baselinePath);
+        } catch (InvalidBaseline $e) {
+            $this->error($e->getMessage());
+
+            return 2;
+        }
+
+        if ($baseline !== null) {
+            $result = $baseline->apply($report->findings);
+            $report = new AuditReport($report->usagesByFile, [...$result['kept'], ...$result['stale']], $result['accepted']);
+        }
+
+        $exit = $level !== null && $report->has($level) ? 1 : 0;
+
+        if ($this->wantsJson()) {
+            return $this->json('env:audit', $report, $exit);
+        }
+
+        $this->renderReport($report, $example, "Checking <fg=cyan>{$this->label($example)}</> as the contract", ' · no .env needed', $exit, $failOn);
+
+        if ($exit === 1 && $this->acceptable($report) !== []) {
+            $this->line('  <fg=gray>To accept these for now and block only new ones:</> php artisan env:audit --ci --update-baseline');
+            $this->newLine();
+        }
+
+        return $exit;
+    }
+
+    /** Errors first: GitHub shows only the first few of each severity per step. */
+    private function annotations(AuditReport $report): void
+    {
+        if (! CiEnvironment::isGitHubActions()) {
+            return;
+        }
+
+        foreach ([Severity::Error, Severity::Warning] as $severity) {
+            foreach ($report->findings as $finding) {
+                if ($finding->severity() === $severity) {
+                    $this->annotate(
+                        $severity === Severity::Error ? 'error' : 'warning',
+                        $finding->code->value,
+                        $finding->message,
+                        $finding->file !== null ? $this->relativePath($finding->file) : null,
+                        $finding->line,
+                    );
+                }
+            }
+        }
+    }
+
+    private function updateBaseline(AuditReport $report, string $path): int
+    {
+        if ($this->lens()->guard()->isProduction($this->basePath())) {
+            $this->error('Refusing to update the baseline in production: it belongs in the repository.');
+
+            return 1;
+        }
+
+        $accepted = $this->acceptable($report);
+        $blocking = array_filter($report->findings, static fn (Finding $f): bool => $f->severity() === Severity::Error && ! Baseline::accepts($f->code));
+
+        Baseline::fromFindings($accepted)->save($path);
+
+        if ($this->wantsJson()) {
+            return $this->json('env:audit', ['baseline' => Baseline::FILE, 'recorded' => count($accepted), 'not_recorded' => count($blocking)]);
+        }
+
+        $count = count($accepted);
+        renderUsing($this->output);
+        $this->newLine();
+        render(<<<HTML
+            <div class="mx-2">
+                <span class="px-1 bg-green text-black font-bold">DONE</span>
+                <span class="ml-1">Recorded {$count} {$this->plural($count, 'finding')} in {$this->relativePath($path)}.</span>
+            </div>
+        HTML);
+
+        if ($blocking !== []) {
+            $codes = implode(', ', array_unique(array_map(static fn (Finding $f): string => $f->code->value, $blocking)));
+            $this->line('  <fg=yellow>Not recorded: '.count($blocking).' '.$this->plural(count($blocking), 'finding')." that must be fixed ({$codes}).</>");
+        }
+
+        $this->line('  <fg=gray>Commit it, so CI blocks only new findings:</> git add '.$this->relativePath($path));
+        $this->newLine();
+
+        return 0;
+    }
+
+    /**
+     * @return list<Finding>
+     */
+    private function acceptable(AuditReport $report): array
+    {
+        return array_values(array_filter($report->findings, static fn (Finding $f): bool => Baseline::accepts($f->code)));
+    }
+
+    private function renderReport(AuditReport $report, EnvFile $file, string $title, string $suffix, int $exit, string $failOn): int
+    {
         // Termwind writes to stdout until told otherwise; send it through this command's output.
         renderUsing($this->output);
 
         $label = $this->label($file);
         $groups = $this->groups($report);
 
-        $this->header($report, $label, $exampleFile !== null ? $this->label($exampleFile) : null);
+        $this->annotations($report);
+
+        $this->header($report, $title, $suffix);
         $this->verdict($report, $exit, $failOn);
+
+        if ($report->baselined > 0) {
+            $this->line("  <fg=gray>{$report->baselined} accepted by ".Baseline::FILE.'</>');
+            $this->newLine();
+        }
 
         if ($groups === []) {
             $this->line('  <fg=green>No issues found.</>');
@@ -86,22 +242,21 @@ final class AuditCommand extends EnvLensCommand
         $findings = $report->findings;
         usort($findings, static fn (Finding $a, Finding $b): int => $a->code->priority() <=> $b->code->priority());
 
+        /** @var array<string, list<Finding>> $groups */
         $groups = [];
         foreach ($findings as $finding) {
             $groups[$finding->code->value][] = $finding;
         }
 
-        uksort($groups, static function (string $a, string $b): int {
-            $codeA = FindingCode::from($a);
-            $codeB = FindingCode::from($b);
-
-            return [self::rank($codeA->severity()), $codeA->priority()] <=> [self::rank($codeB->severity()), $codeB->priority()];
+        uksort($groups, static function (string $a, string $b) use ($groups): int {
+            return [self::rank($groups[$a][0]->severity()), FindingCode::from($a)->priority()]
+                <=> [self::rank($groups[$b][0]->severity()), FindingCode::from($b)->priority()];
         });
 
         return $groups;
     }
 
-    private function header(AuditReport $report, string $label, ?string $exampleLabel): void
+    private function header(AuditReport $report, string $title, string $suffix): void
     {
         $config = [];
         $code = [];
@@ -112,11 +267,9 @@ final class AuditCommand extends EnvLensCommand
             }
         }
 
-        $against = $exampleLabel !== null ? " against <fg=cyan>{$exampleLabel}</>" : ' <fg=yellow>(no example file)</>';
-
         $this->newLine();
-        $this->line("  Auditing <fg=cyan>{$label}</>{$against} · ".count($config).' config '.$this->plural(count($config), 'file').', '
-            .count($code).' code '.$this->plural(count($code), 'file').' scanned');
+        $this->line("  {$title} · ".count($config).' config '.$this->plural(count($config), 'file').' and '
+            .count($code).' code '.$this->plural(count($code), 'file').' read env()'.$suffix);
     }
 
     private function verdict(AuditReport $report, int $exit, string $failOn): void
@@ -210,6 +363,10 @@ final class AuditCommand extends EnvLensCommand
         }
 
         $step = match ($code) {
+            FindingCode::ExampleSecret => "Blank {$count} real-looking ".$this->plural($count, 'secret')." in the example file ({$places}) and rotate ".($count === 1 ? 'it' : 'them').': values stay in git history.',
+            FindingCode::UndeclaredKey => $count === 1
+                ? "Add {$findings[0]->key} to the example file: config reads it with no default ({$findings[0]->detail})."
+                : "Add {$count} keys to the example file ({$keys}): config reads them with no default.",
             FindingCode::Syntax => "Fix {$count} syntax ".$this->plural($count, 'error')." in {$label} (".$this->names(array_map(static fn (Finding $f): string => 'line '.$f->line, $findings)).').',
             FindingCode::MissingRequired => $count === 1
                 ? "Add {$findings[0]->key} to {$label}: required by {$findings[0]->detail}, no default."
@@ -242,10 +399,9 @@ final class AuditCommand extends EnvLensCommand
 
         $this->line('  <options=bold>What the codes mean</>');
 
-        foreach (array_keys($groups) as $code) {
-            $finding = FindingCode::from($code);
-            $color = $this->color($finding->severity());
-            $this->line("  <fg={$color}>".str_pad($code, $width)."</>  <fg=gray>{$finding->meaning()}</>");
+        foreach ($groups as $code => $findings) {
+            $color = $this->color($findings[0]->severity());
+            $this->line("  <fg={$color}>".str_pad($code, $width).'</>  <fg=gray>'.FindingCode::from($code)->meaning().'</>');
         }
     }
 
@@ -258,7 +414,7 @@ final class AuditCommand extends EnvLensCommand
     private function findings(array $groups): void
     {
         foreach ($groups as $code => $findings) {
-            $severity = FindingCode::from($code)->severity();
+            $severity = $findings[0]->severity();
             $count = count($findings);
             $badge = match ($severity) {
                 Severity::Error => 'ERROR',

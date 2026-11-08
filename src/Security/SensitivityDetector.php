@@ -11,6 +11,10 @@ final class SensitivityDetector
     /** scheme://user:password@host: a connection string carrying credentials. */
     private const CREDENTIAL_URL = '#^[a-z][a-z0-9+.-]*://[^/@\s]*:[^/@\s]+@#i';
 
+    private const PLACEHOLDERS = ['null', '(null)', 'empty', '(empty)', 'true', 'false', 'root', 'admin', 'test', 'homestead', 'laravel', 'sail', 'forge', 'dummy', 'none', 'todo', 'tbd', 'n/a'];
+
+    private const PLACEHOLDER_WORDS = ['password', 'secret', 'replace', 'random', 'example', 'change', 'your', 'placeholder', 'abcdef'];
+
     /**
      * @param  list<string>  $keys
      * @param  list<string>  $patterns
@@ -38,6 +42,32 @@ final class SensitivityDetector
         }
 
         return Glob::matchesAny($this->keys, $key) || Glob::matchesAny($this->patterns, $key);
+    }
+
+    /**
+     * True when a value is clearly not a real secret: a keyword such as `null`, a `${VAR}` reference,
+     * or filler such as `<token>`, `xxxx` or `your-api-key`. A real password containing one of these
+     * words also counts, which is the price of not failing builds on example files' filler values.
+     */
+    public function isPlaceholder(string $value): bool
+    {
+        $lower = strtolower(trim($value));
+
+        if (in_array($lower, self::PLACEHOLDERS, true) || str_contains($value, '${')) {
+            return true;
+        }
+
+        if (preg_match('/^(<.*>|\{.*\}|[.*\-_]{3,})$/', $lower) === 1 || str_contains($lower, 'xxx')) {
+            return true;
+        }
+
+        foreach (self::PLACEHOLDER_WORDS as $word) {
+            if (str_contains($lower, $word)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

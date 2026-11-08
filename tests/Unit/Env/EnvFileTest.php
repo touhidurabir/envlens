@@ -141,3 +141,59 @@ it('never puts value text in a syntax error message', function (): void {
 
     expect($errors[0]->message)->toBe('Failed to parse dotenv file. Encountered unexpected whitespace.');
 });
+
+it('lists every assignment line, including commented-out ones and earlier duplicates', function () {
+    $lines = EnvFile::fromString("# a note\nA=1\n# B=two\n#export C=\"three\" # why\nA=\n#\n# nothing to see here\n")->assignments();
+
+    expect(array_map(fn ($l) => [$l->key, $l->value, $l->line], $lines))->toBe([
+        ['A', '1', 2],
+        ['B', 'two', 3],
+        ['C', 'three', 4],
+        ['A', '', 5],
+    ])->and($lines[1]->type)->toBe(EnvEntryType::Key);
+});
+
+it('reads commented-out assignments with CRLF endings', function () {
+    $lines = EnvFile::fromString("# B=two\r\n")->assignments();
+
+    expect($lines[0]->key)->toBe('B')->and($lines[0]->value)->toBe('two');
+});
+
+it('keeps the raw text of a commented-out value that cannot be parsed', function () {
+    $lines = EnvFile::fromString("# B=\"open\n")->assignments();
+
+    expect($lines[0]->key)->toBe('B')->and($lines[0]->value)->toBe('"open');
+});
+
+it('does not treat commented-out assignments as defining a key', function () {
+    expect(EnvFile::fromString("# B=two\n")->has('B'))->toBeFalse();
+});
+
+it('finds commented-out assignments behind other comment markers', function (string $comment) {
+    $lines = EnvFile::fromString($comment."\n")->assignments();
+
+    expect($lines[0]->key)->toBe('B')->and($lines[0]->value)->toBe('two');
+})->with(['## B=two', '#; B=two', '#- B=two', '# - B=two', '#* B=two', '#> B=two', '#: B=two']);
+
+it('finds assignments inside a prose comment', function () {
+    $lines = EnvFile::fromString("# Old: B=two and C=\"three\", not D\n")->assignments();
+
+    expect(array_map(fn ($l) => [$l->key, $l->value, $l->line], $lines))->toBe([['B', 'two', 1], ['C', 'three', 1]]);
+});
+
+it('accepts what phpdotenv accepts', function (string $source, string $key, ?string $value) {
+    $file = EnvFile::fromString($source);
+
+    expect($file->syntaxErrors())->toBe([])
+        ->and($file->has($key))->toBeTrue()
+        ->and($file->get($key))->toBe($value)
+        ->and($file->toString())->toBe($source);
+})->with([
+    'byte order mark' => ["\xEF\xBB\xBFA=1\nB=2\n", 'A', '1'],
+    'key starting with a digit' => ["2FA_ENABLED=true\n", '2FA_ENABLED', 'true'],
+    'key with no equals sign' => ["BAREWORD\nB=2\n", 'BAREWORD', null],
+]);
+
+it('still reports lines that are not assignments', function () {
+    expect(EnvFile::fromString("NOT A KEY\n")->syntaxErrors())->toHaveCount(1);
+});
