@@ -6,6 +6,8 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-08
+
 ### Added
 - `env:audit --ci`: the gate for pull requests. It checks config and code against the example file alone, with no `.env`
   or secrets, and a stock Laravel 12 or 13 app passes with no setup. New findings: `undeclared-key` (config reads a key
@@ -100,5 +102,6 @@ Other changes:
   `status` / `resolves` and suggestions.
 - `EnvLens` facade for using the scanning, analysis and mutation services programmatically.
 
-[Unreleased]: https://github.com/touhidurabir/envlens/compare/1.0.0...HEAD
+[Unreleased]: https://github.com/touhidurabir/envlens/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/touhidurabir/envlens/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/touhidurabir/envlens/releases/tag/1.0.0
