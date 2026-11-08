@@ -39,10 +39,21 @@ it('comments out rules a person should decide on', function () {
 it('records the assumption and location beside each rule', function () {
     $php = (new RulesFileWriter)->render(new Inference([inferred('A_KEY', 'config default 5 is a whole number'), inferred('MAYBE', 'may be optional', false)], ['free' => [], 'nonLiteral' => [], 'conflicting' => [], 'none' => []]));
 
-    expect($php)->toContain("'A_KEY' => 'nullable|integer', // config default 5 is a whole number (config/a.php:5)")
-        ->toContain("// 'MAYBE' => 'required', // may be optional (config/a.php:5)")
+    expect($php)->toContain(<<<'PHP'
+                // config default 5 is a whole number (config/a.php:5)
+                'A_KEY' => [
+                    'nullable',
+                    'integer',
+                ],
+
+                // may be optional (config/a.php:5)
+                // 'MAYBE' => [
+                //     'required',
+                // ],
+        PHP)
         ->toContain("// 'environments' => [")
-        ->toContain("// 'messages' => [");
+        ->toContain("// 'messages' => [")
+        ->not->toContain("'nullable|integer'");
 });
 
 it('survives assumptions that could break out of a comment', function (string $assumption) {

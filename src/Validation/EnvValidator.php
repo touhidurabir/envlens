@@ -53,6 +53,20 @@ final class EnvValidator
     }
 
     /**
+     * Checks that the rules can run, without running them or looking at a value.
+     *
+     * @param  array<string, mixed>  $rules
+     */
+    public function ensureUsable(array $rules): void
+    {
+        foreach ($rules as $key => $rule) {
+            $key = (string) $key;
+
+            $this->ensureRulesExist($this->validatorFor([], $key, $rule, []), $key, $rule);
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $values
      * @param  array<string, string>  $messages
      */
@@ -106,16 +120,17 @@ final class EnvValidator
             $key,
             $sensitive,
             $inferred ? ValidationFailure::INFERRED : ValidationFailure::FROM_RULES,
-            $this->ruleNames(reset($failed) ?: []),
+            $this->ruleNames(reset($failed) ?: [], $sensitive),
             $sensitive ? null : implode(' ', $validator->errors()->all()),
         );
     }
 
     /**
      * @param  array<string, array<int, mixed>>  $failed  rule name => parameters, as Validator::failed() gives them
+     * @param  bool  $namesOnly  drop the parameters, since `in:...` on a sensitive key could repeat a secret
      * @return list<string>
      */
-    private function ruleNames(array $failed): array
+    private function ruleNames(array $failed, bool $namesOnly): array
     {
         $names = [];
 
@@ -127,7 +142,7 @@ final class EnvValidator
             }
 
             $name = Str::snake($rule);
-            $names[] = $parameters === [] ? $name : $name.':'.implode(',', array_map(strval(...), $parameters));
+            $names[] = $namesOnly || $parameters === [] ? $name : $name.':'.implode(',', array_map(strval(...), $parameters));
         }
 
         return array_values(array_unique($names));

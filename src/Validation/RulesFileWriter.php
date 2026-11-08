@@ -12,8 +12,8 @@ final class RulesFileWriter
         $rules = $inference->rules;
         usort($rules, static fn (InferredRule $a, InferredRule $b): int => $a->key <=> $b->key);
 
-        $lines = array_map(self::line(...), $rules);
-        $body = $lines === [] ? '' : implode("\n", $lines)."\n";
+        $entries = array_map(self::entry(...), $rules);
+        $body = $entries === [] ? '' : implode("\n\n", $entries)."\n";
 
         return <<<PHP
         <?php
@@ -29,11 +29,16 @@ final class RulesFileWriter
 
             // Rules added for one environment, on top of the rules above:
             // 'environments' => [
-            //     'production' => ['APP_DEBUG' => 'declined', 'APP_URL' => 'starts_with:https://'],
+            //     'production' => [
+            //         'APP_DEBUG' => ['declined'],
+            //         'APP_URL' => ['starts_with:https://'],
+            //     ],
             // ],
 
             // Custom messages. Never shown for sensitive keys, where only the rule's name is printed:
-            // 'messages' => ['APP_URL.starts_with' => 'Production must use https.'],
+            // 'messages' => [
+            //     'APP_URL.starts_with' => 'Production must use https.',
+            // ],
 
             // Keep checking keys not listed above, from how config reads them. These only warn:
             'infer' => true,
@@ -42,12 +47,21 @@ final class RulesFileWriter
         PHP;
     }
 
-    private static function line(InferredRule $rule): string
+    /** The assumption, then the key with one rule per line. A rule a person must decide on is commented out. */
+    private static function entry(InferredRule $rule): string
     {
         $location = $rule->file !== null ? " ({$rule->file}:{$rule->line})" : '';
-        $assignment = var_export($rule->key, true).' => '.var_export($rule->rule, true).',';
+        $lines = [
+            var_export($rule->key, true).' => [',
+            ...array_map(static fn (string $part): string => '    '.var_export($part, true).',', explode('|', $rule->rule)),
+            '],',
+        ];
 
-        return '        '.($rule->active ? $assignment : '// '.self::comment($assignment)).' // '.self::comment($rule->assumption.$location);
+        if (! $rule->active) {
+            $lines = array_map(static fn (string $line): string => '// '.self::comment($line), $lines);
+        }
+
+        return implode("\n", array_map(static fn (string $line): string => '        '.$line, ['// '.self::comment($rule->assumption.$location), ...$lines]));
     }
 
     /** A config default is printed in a comment, so it must not be able to end that comment. */

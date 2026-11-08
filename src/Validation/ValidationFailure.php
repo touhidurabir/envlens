@@ -7,7 +7,8 @@ namespace Touhidurabir\EnvLens\Validation;
 use JsonSerializable;
 
 /**
- * One key that failed. For a sensitive key, `$message` is always null: messages can repeat the value.
+ * One key that failed. For a sensitive key, `$message` is always null, since messages can repeat the value,
+ * and `$rules` holds only names, since parameters can too.
  */
 final readonly class ValidationFailure implements JsonSerializable
 {

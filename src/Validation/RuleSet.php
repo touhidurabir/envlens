@@ -86,6 +86,16 @@ final readonly class RuleSet
     }
 
     /**
+     * The keys an environment adds rules to.
+     *
+     * @return list<string>
+     */
+    public function keysAddedFor(?string $environment): array
+    {
+        return array_map(strval(...), array_keys($this->environments[$environment ?? ''] ?? []));
+    }
+
+    /**
      * @return list<mixed>
      */
     private static function split(mixed $rule): array

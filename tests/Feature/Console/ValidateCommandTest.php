@@ -28,7 +28,7 @@ function validateProject(string $extraEnv = '', ?string $rules = null): string
 it('runs with no rules file, using checks inferred from config', function () {
     $output = validateCmd(['--path' => validateProject()]);
 
-    expect($output)->toMatch('/PASS/')
+    expect($output)->toMatch('/PASS\s+\d+ checks? passed/')
         ->toContain('Validating .env')
         ->toContain('inferred')
         ->toContain('env:validate --init');
@@ -58,7 +58,7 @@ it('fails on a rule from the rules file, listing every failure', function () {
 
 it('passes when the rules file is satisfied', function () {
     expect(validateCmd(['--path' => validateProject("A=1\n", "['rules' => ['A' => 'integer']]")]))
-        ->toMatch('/PASS/')
+        ->toMatch('/PASS\s+\d+ checks? passed/')
         ->toContain('from env.rules.php');
 });
 
@@ -73,7 +73,7 @@ it('still infers for keys the rules file does not cover', function () {
 it('turns inference off with infer false', function () {
     $output = validateCmd(['--path' => validateProject("DB_PORT=not-a-port\n", "['rules' => ['A' => 'nullable'], 'infer' => false]"), '--strict' => true]);
 
-    expect($output)->toMatch('/PASS/')->not->toContain('DB_PORT');
+    expect($output)->toMatch('/PASS\s+\d+ checks? passed/')->not->toContain('DB_PORT');
 });
 
 it('adds environment rules, choosing the environment from --environment, then the file', function () {
@@ -227,7 +227,7 @@ it('generates the rules file when asked, then validates with it', function () {
         ->expectsOutputToContain('Validating .env')
         ->assertExitCode(1);
 
-    expect(file_get_contents($path.'/env.rules.php'))->toContain("'DB_PORT' => 'nullable|integer'");
+    expect(file_get_contents($path.'/env.rules.php'))->toContain("'DB_PORT' => [\n            'nullable',\n            'integer',\n        ],");
 });
 
 it('stops without validating when the generated file is declined', function () {
@@ -280,9 +280,9 @@ it('shows every rule and its assumption before writing with --init', function ()
         ->toContain('git add env.rules.php');
 
     $php = (string) file_get_contents($path.'/env.rules.php');
-    expect($php)->toContain("// 'AWS_BUCKET' => 'required',")->toContain("'infer' => true,");
+    expect($php)->toContain("// 'AWS_BUCKET' => [\n        //     'required',\n        // ],")->toContain("'infer' => true,");
 
-    expect(validateCmd(['--path' => $path]))->toMatch('/PASS/')->toContain('from env.rules.php');
+    expect(validateCmd(['--path' => $path]))->toMatch('/PASS\s+\d+ checks? passed/')->toContain('from env.rules.php');
 });
 
 it('lists keys with no rule only with -v', function () {
@@ -406,7 +406,161 @@ it('does not check declared keys unless a person made them rules', function () {
     $path = fixtureProject('stock-13');
     file_put_contents($path.'/.env', "APP_KEY=base64:abc\n");
 
-    expect(validateCmd(['--path' => $path, '--strict' => true]))->toMatch('/PASS/')->not->toContain('AWS_BUCKET');
+    expect(validateCmd(['--path' => $path, '--strict' => true]))->toMatch('/PASS\s+\d+ checks? passed/')->not->toContain('AWS_BUCKET');
+});
+
+it('lists the inferred rules it checks, and why, before the result', function () {
+    $output = validateCmd(['--path' => validateProject()]);
+
+    expect($output)->toMatch('/DB_PORT\s*\|\s*nullable\|integer\s*\|\s*inferred\s*\|\s*config default 3306 is a whole number \(config\/database\.php:\d+\)/')
+        ->toMatch('/APP_KEY\s*\|\s*required\s*\|\s*inferred\s*\|\s*Laravel cannot encrypt without it/')
+        ->not->toContain('AWS_BUCKET')
+        ->and(strpos($output, 'nullable|integer'))->toBeLessThan(strpos($output, 'checks passed'))
+        ->and(strpos($output, 'checks passed'))->toBeLessThan(strpos($output, 'Summary'));
+});
+
+it('lists the rules from the rules file before the result, and before any failure', function () {
+    $output = validateCmd(['--path' => validateProject("DB_PORT=x\n", "['rules' => ['A' => ['nullable', 'integer'], 'DB_PORT' => 'integer|min:1']]")], 1);
+
+    expect($output)->toMatch('/\bA\s*\|\s*nullable\|integer\s*\|\s*rules\s*\|\s*env\.rules\.php/')
+        ->toMatch('/DB_PORT\s*\|\s*integer\|min:1\s*\|\s*rules\s*\|\s*env\.rules\.php/')
+        ->not->toMatch('/DB_PORT\s*\|\s*nullable\|integer/')
+        ->toMatch('/APP_KEY\s*\|\s*required\s*\|\s*inferred/')
+        ->and(strpos($output, 'integer|min:1'))->toBeLessThan(strpos($output, 'FAIL'));
+});
+
+it('says which rules came from the environment', function () {
+    $rules = "['rules' => ['A' => 'nullable'], 'environments' => ['production' => ['A' => 'integer', 'B' => 'nullable']], 'infer' => false]";
+    $path = validateProject("A=1\n", $rules);
+
+    expect(validateCmd(['--path' => $path, '--environment' => 'production']))
+        ->toMatch('/\bA\s*\|\s*nullable\|integer\s*\|\s*rules\s*\|\s*env\.rules\.php \(production\)/')
+        ->toMatch('/\bB\s*\|\s*nullable\s*\|\s*rules\s*\|\s*env\.rules\.php \(production\)/');
+
+    expect(validateCmd(['--path' => $path, '--environment' => 'staging']))
+        ->toMatch('/\bA\s*\|\s*nullable\s*\|\s*rules\s*\|\s*env\.rules\.php\s*\|/')
+        ->not->toMatch('/\bB\s*\|\s*nullable/');
+});
+
+it('shows no rules table when there is nothing to check', function () {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', "A=1\n");
+    file_put_contents($path.'/env.rules.php', "<?php\n\nreturn ['rules' => [], 'infer' => false];\n");
+
+    expect(validateCmd(['--path' => $path]))->toContain('Nothing to check')->not->toContain('Based on');
+});
+
+it('shows only the rule name for a sensitive key, whose parameters could be secret', function (array $options) {
+    $rules = <<<'PHP'
+    ['rules' => ['STRIPE_SECRET' => ['in:sk_live_marker', static function ($a, $v, $fail) {}], 'PLAIN' => 'in:one,two']]
+    PHP;
+    $path = validateProject("STRIPE_SECRET=nope\nPLAIN=three\n", $rules);
+
+    expect(validateCmd(['--path' => $path] + $options, 1))->not->toContain('sk_live_marker')->toContain('one,two');
+})->with(['text' => [[]], 'json' => [['--json' => true]]]);
+
+it('marks a closure as a custom rule', function () {
+    $rules = <<<'PHP'
+    ['rules' => ['STRIPE_SECRET' => ['in:x', static function ($a, $v, $fail) {}]], 'infer' => false]
+    PHP;
+
+    expect(validateCmd(['--path' => validateProject("STRIPE_SECRET=x\n", $rules)]))->toMatch('/STRIPE_SECRET\s*\|\s*in\|custom rule\s*\|\s*rules/');
+});
+
+it('includes the rules it checked in JSON', function () {
+    $data = json_decode(validateCmd(['--path' => validateProject("A=1\n", "['rules' => ['A' => 'integer']]"), '--json' => true]), true);
+
+    expect(collect($data['data']['rules'])->firstWhere('key', 'A'))->toBe(['key' => 'A', 'sensitive' => false, 'rules' => ['integer'], 'source' => 'rules', 'based_on' => 'env.rules.php'])
+        ->and(collect($data['data']['rules'])->firstWhere('key', 'DB_PORT'))->toMatchArray(['rules' => ['nullable', 'integer'], 'source' => 'inferred']);
+});
+
+it('shows the rules with --show-rules-only and checks no values', function () {
+    $path = validateProject("DB_PORT=not-a-port\n", "['rules' => ['A' => 'integer']]");
+    file_put_contents($path.'/.env', (string) file_get_contents($path.'/.env')."A=not-a-number\n");
+
+    expect(validateCmd(['--path' => $path, '--show-rules-only' => true, '--strict' => true]))
+        ->toMatch('/\bA\s*\|\s*integer\s*\|\s*rules\s*\|\s*env\.rules\.php/')
+        ->toMatch('/DB_PORT\s*\|\s*nullable\|integer\s*\|\s*inferred/')
+        ->toContain('No values were checked')
+        ->toContain('1 rule from env.rules.php')
+        ->not->toMatch('/\b(PASS|WARN|FAIL)\s+\d+/')
+        ->not->toContain('Summary');
+});
+
+it('shows the inferred rules with --show-rules-only, without asking, writing or needing a .env', function () {
+    $path = fixtureProject('stock-13');
+
+    $this->artisan('env:validate', ['--path' => $path, '--show-rules-only' => true])
+        ->expectsOutputToContain('No values were checked')
+        ->assertExitCode(0);
+
+    expect(file_exists($path.'/env.rules.php'))->toBeFalse()
+        ->and(validateCmd(['--path' => $path, '--show-rules-only' => true]))->toMatch('/DB_PORT\s*\|\s*nullable\|integer/');
+});
+
+it('chooses the environment for --show-rules-only as a real run does', function () {
+    $rules = "['rules' => [], 'environments' => ['production' => ['A' => 'integer'], 'staging' => ['B' => 'integer']], 'infer' => false]";
+    $path = validateProject("APP_ENV=staging\n", $rules);
+
+    expect(validateCmd(['--path' => $path, '--show-rules-only' => true]))->toContain('environment: staging')->toMatch('/\bB\s*\|\s*integer/');
+    expect(validateCmd(['--path' => $path, '--show-rules-only' => true, '--environment' => 'production']))->toContain('environment: production')->toMatch('/\bA\s*\|\s*integer/');
+});
+
+it('shows the rules even when the env file cannot be parsed, without printing it', function (string $env) {
+    $path = fixtureProject('stock-13');
+    file_put_contents($path.'/.env', $env);
+
+    expect(validateCmd(['--path' => $path, '--show-rules-only' => true]))->toContain('No values were checked')->not->toContain('sk_live_marker');
+})->with([
+    'lexer rejects it' => ["A=1\nSECRET_KEY=\"sk_live_marker\n"],
+    'phpdotenv rejects it' => ["API_SECRET=abc=\"sk_live_marker\nOTHER=\"y z\"\n"],
+]);
+
+it('outputs the rules as JSON with --show-rules-only', function () {
+    $data = json_decode(validateCmd(['--path' => validateProject('', "['rules' => ['A' => 'integer'], 'infer' => false]"), '--show-rules-only' => true, '--json' => true]), true);
+
+    expect($data['command'])->toBe('env:validate')
+        ->and($data['data']['rules_file'])->toBe('env.rules.php')
+        ->and($data['data']['rules'])->toBe([['key' => 'A', 'sensitive' => false, 'rules' => ['integer'], 'source' => 'rules', 'based_on' => 'env.rules.php']])
+        ->and($data['data'])->not->toHaveKey('failures');
+});
+
+it('runs nothing from the rules file with --show-rules-only', function () {
+    $rules = <<<'PHP'
+    ['rules' => ['A' => [static function ($a, $v, $fail) { throw new RuntimeException('ran'); }]], 'infer' => false]
+    PHP;
+
+    expect(validateCmd(['--path' => validateProject("A=1\n", $rules), '--show-rules-only' => true]))->toMatch('/\bA\s*\|\s*custom rule/');
+});
+
+it('says when --show-rules-only has no rules to show', function () {
+    expect(validateCmd(['--path' => validateProject('', "['rules' => [], 'infer' => false]"), '--show-rules-only' => true]))->toContain('No rules would run');
+});
+
+it('exits 2 from --show-rules-only on usage errors', function (array $options, ?string $rules, string $message) {
+    expect(validateCmd(['--path' => validateProject('', $rules), '--show-rules-only' => true] + $options, 2))->toContain($message);
+})->with([
+    'with init' => [['--init' => true], null, '--show-rules-only cannot be combined with --init'],
+    'with from-env and file' => [['--from-env' => true, '--file' => '.env'], null, 'cannot be combined'],
+    'missing named rules file' => [['--rules' => 'nope.php'], null, 'nope.php'],
+    'missing named env file' => [['--file' => '.env.nope'], null, 'File not found: .env.nope'],
+    'bad shape' => [[], '5', 'must return an array'],
+    'unknown rule' => [[], "['rules' => ['A' => 'nosuchrule']]", 'Unknown rule for A: nosuchrule'],
+]);
+
+it('exits 2 from --show-rules-only when there is nothing to show', function () {
+    $path = fixtureProject('stock-13');
+    (new Filesystem)->deleteDirectory($path.'/config');
+
+    expect(validateCmd(['--path' => $path, '--show-rules-only' => true], 2))->toContain('scan.config_paths');
+});
+
+it('validates a generated rules file the same as the rules it was generated from', function () {
+    $path = validateProject("DB_PORT=not-a-port\n");
+
+    validateCmd(['--path' => $path, '--init' => true]);
+
+    expect(validateCmd(['--path' => $path], 1))->toMatch('/DB_PORT\s*\|\s*nullable\|integer\s*\|\s*rules\s*\|\s*env\.rules\.php/')->toContain('The DB_PORT field must be an integer.');
 });
 
 it('passes the README deploy recipe on a stock app', function () {

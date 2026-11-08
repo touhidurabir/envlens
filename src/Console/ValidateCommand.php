@@ -9,9 +9,11 @@ use Touhidurabir\EnvLens\Env\EnvFile;
 use Touhidurabir\EnvLens\Exceptions\InvalidRulesFile;
 use Touhidurabir\EnvLens\Exceptions\UnparseableEnvFile;
 use Touhidurabir\EnvLens\Support\CiEnvironment;
+use Touhidurabir\EnvLens\Validation\CheckedRule;
 use Touhidurabir\EnvLens\Validation\EnvValues;
 use Touhidurabir\EnvLens\Validation\Inference;
 use Touhidurabir\EnvLens\Validation\InferredRule;
+use Touhidurabir\EnvLens\Validation\RulePlan;
 use Touhidurabir\EnvLens\Validation\RuleSet;
 use Touhidurabir\EnvLens\Validation\RulesFileWriter;
 use Touhidurabir\EnvLens\Validation\ValidationFailure;
@@ -33,6 +35,7 @@ final class ValidateCommand extends EnvLensCommand
         {--strict : Also fail on checks inferred from config}
         {--init : Generate a rules file from your config, showing the assumption behind each rule}
         {--dry-run : With --init, show the rules without writing}
+        {--show-rules-only : Show the rules that would run, and why, without checking any values}
         {--json : Output JSON}
         {--path= : Project base path}';
 
@@ -52,12 +55,18 @@ final class ValidateCommand extends EnvLensCommand
             return 2;
         }
 
+        if ($this->option('show-rules-only') && $this->option('init')) {
+            $this->error('--show-rules-only cannot be combined with --init, which already shows what it would generate.');
+
+            return 2;
+        }
+
         if ($this->option('init')) {
             return $this->generateRules();
         }
 
         try {
-            return $this->validateValues();
+            return $this->option('show-rules-only') ? $this->showRules() : $this->validateValues();
         } catch (InvalidRulesFile $e) {
             $this->error($e->getMessage());
 
@@ -87,12 +96,7 @@ final class ValidateCommand extends EnvLensCommand
         }
 
         $rulesName = $this->stringOption('rules', RuleSet::FILE);
-        $rulesPath = $this->resolve($rulesName);
-        $hasRulesFile = is_file($rulesPath);
-
-        if (! $hasRulesFile && $this->option('rules') !== null) {
-            throw InvalidRulesFile::notLoadable($rulesName, 'file not found');
-        }
+        $hasRulesFile = $this->hasRulesFile($rulesName);
 
         if (! $hasRulesFile && ! $this->index(false)->hasConfigUsages()) {
             return $this->nothingToInfer();
@@ -110,22 +114,9 @@ final class ValidateCommand extends EnvLensCommand
             $hasRulesFile = true;
         }
 
-        $set = $hasRulesFile ? RuleSet::fromFile($rulesPath) : new RuleSet;
-        $environment = $this->environmentFor($values);
-        $rules = $set->rulesFor($environment);
-        $written = count($rules);
-        $inferred = [];
-
-        if ($set->infer) {
-            foreach ($this->lens()->inferrer()->infer($this->index(), $this->exampleFile())->rules as $rule) {
-                if ($rule->active && ! isset($rules[$rule->key])) {
-                    $rules[$rule->key] = $rule->rule;
-                    $inferred[] = $rule->key;
-                }
-            }
-        }
-
-        $report = $this->lens()->validator()->validate($values, $rules, $set->messages, $inferred);
+        $set = $hasRulesFile ? RuleSet::fromFile($this->resolve($rulesName)) : new RuleSet;
+        $plan = $this->plan($set, $hasRulesFile ? $rulesName : null, $values);
+        $report = $this->lens()->validator()->validate($values, $plan->rules, $set->messages, $plan->inferredKeys);
         $strict = (bool) $this->option('strict');
         $exit = $report->hasRuleFailures() || ($strict && $report->hasInferredFailures()) ? 1 : 0;
 
@@ -133,8 +124,9 @@ final class ValidateCommand extends EnvLensCommand
             return $this->json('env:validate', [
                 'values_from' => $source,
                 'rules_file' => $hasRulesFile ? $rulesName : null,
-                'environment' => $environment,
+                'environment' => $plan->environment,
                 'strict' => $strict,
+                'rules' => $plan->checks,
             ] + $report->jsonSerialize(), $exit);
         }
 
@@ -142,11 +134,13 @@ final class ValidateCommand extends EnvLensCommand
         renderUsing($this->output);
 
         $this->annotations($report, $strict);
-        $this->header($source, $hasRulesFile ? $rulesName : null, $written, count($inferred), $environment);
+        $this->newLine();
+        $this->line("  Validating <fg=cyan>{$source}</> · ".$this->planSummary($plan, $hasRulesFile ? $rulesName : null));
+        $this->checksTable($plan);
         $this->verdict($report, $exit);
         $this->failures($report);
         $this->summary($report);
-        $this->notes($report, $hasRulesFile, $inferred !== [], $strict);
+        $this->notes($report, $hasRulesFile, $plan->inferredKeys !== [], $strict);
 
         if ($asked && ! $hasRulesFile) {
             $this->line('  <fg=gray>Use -n to skip this question next time.</>');
@@ -154,6 +148,90 @@ final class ValidateCommand extends EnvLensCommand
         }
 
         return $exit;
+    }
+
+    /** Read-only: it runs no rule, asks nothing and writes nothing, so it needs no values and no .env. */
+    private function showRules(): int
+    {
+        $rulesName = $this->stringOption('rules', RuleSet::FILE);
+        $hasRulesFile = $this->hasRulesFile($rulesName);
+
+        if (! $hasRulesFile && ! $this->index(false)->hasConfigUsages()) {
+            return $this->nothingToInfer();
+        }
+
+        $set = $hasRulesFile ? RuleSet::fromFile($this->resolve($rulesName)) : new RuleSet;
+        $plan = $this->plan($set, $hasRulesFile ? $rulesName : null, $this->valuesForEnvironment());
+
+        $this->lens()->validator()->ensureUsable($plan->rules);
+
+        if ($this->wantsJson()) {
+            return $this->json('env:validate', [
+                'rules_file' => $hasRulesFile ? $rulesName : null,
+                'environment' => $plan->environment,
+                'rules' => $plan->checks,
+            ]);
+        }
+
+        $this->newLine();
+        $this->line('  Rules <fg=cyan>env:validate</> would check · '.$this->planSummary($plan, $hasRulesFile ? $rulesName : null));
+        $this->checksTable($plan);
+        $this->newLine();
+        $this->line($plan->checks === []
+            ? '  <fg=gray>No rules would run.</>'
+            : '  <fg=gray>No values were checked. To check them:</> php artisan env:validate');
+        $this->newLine();
+
+        return 0;
+    }
+
+    /** A named rules file has to exist. The default one is optional. */
+    private function hasRulesFile(string $name): bool
+    {
+        $exists = is_file($this->resolve($name));
+
+        if (! $exists && $this->option('rules') !== null) {
+            throw InvalidRulesFile::notLoadable($name, 'file not found');
+        }
+
+        return $exists;
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     */
+    private function plan(RuleSet $set, ?string $rulesName, array $values): RulePlan
+    {
+        return RulePlan::build(
+            $set,
+            $rulesName,
+            $this->environmentFor($values),
+            $set->infer ? $this->lens()->inferrer()->infer($this->index(), $this->exampleFile()) : null,
+            $this->lens()->sensitivity(),
+            $values,
+        );
+    }
+
+    /**
+     * Only for choosing the environment and spotting sensitive values, so an env file that is absent or
+     * broken is no reason not to show the rules. One named with --file must exist, in case of a typo.
+     *
+     * @return array<string, mixed>
+     */
+    private function valuesForEnvironment(): array
+    {
+        if ($this->option('from-env')) {
+            return EnvValues::fromProcess();
+        }
+
+        $named = $this->option('file') !== null;
+        $file = $this->envFile($this->stringOption('file', $this->sourceName()), $named);
+
+        try {
+            return EnvValues::fromFile($file);
+        } catch (UnparseableEnvFile) {
+            return [];
+        }
     }
 
     /** Only a person at a terminal can answer: not in CI, in production or with --json. EnvLensCommand handles no terminal. */
@@ -361,8 +439,10 @@ final class ValidateCommand extends EnvLensCommand
         }
     }
 
-    private function header(string $source, ?string $rulesName, int $written, int $inferred, string $environment): void
+    private function planSummary(RulePlan $plan, ?string $rulesName): string
     {
+        $written = $plan->count(ValidationFailure::FROM_RULES);
+        $inferred = $plan->count(ValidationFailure::INFERRED);
         $parts = [];
 
         if ($rulesName !== null) {
@@ -373,10 +453,24 @@ final class ValidateCommand extends EnvLensCommand
             $parts[] = "{$inferred} inferred";
         }
 
-        $parts[] = "environment: {$environment}";
+        $parts[] = "environment: {$plan->environment}";
+
+        return implode(' · ', $parts);
+    }
+
+    private function checksTable(RulePlan $plan): void
+    {
+        if ($plan->checks === []) {
+            return;
+        }
 
         $this->newLine();
-        $this->line("  Validating <fg=cyan>{$source}</> · ".implode(' · ', $parts));
+        $this->table(['Key', 'Rules', 'Source', 'Based on'], array_map(static fn (CheckedRule $c): array => [
+            $c->key,
+            implode('|', $c->rules),
+            $c->source,
+            $c->basedOn,
+        ], $plan->checks));
     }
 
     private function verdict(ValidationReport $report, int $exit): void

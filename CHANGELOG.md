@@ -16,7 +16,10 @@ All notable changes to `touhidurabir/envlens` are documented here. The format fo
 - GitHub annotations from `env:audit` and `env:validate` inside GitHub Actions, errors first.
 - `env:validate`: checks values against rules in `env.rules.php`, and works with no rules file by inferring checks from
   config defaults. Inferred checks warn unless `--strict`; rules in the file fail. Sensitive keys show only the rule's name.
-- `env:validate --init`: generates `env.rules.php`, showing the assumption behind each rule first.
+- `env:validate --init`: generates `env.rules.php`, showing the assumption behind each rule first. Each key gets its own
+  array of rules, with the assumption above it.
+- `env:validate` lists the rules it checks before the result, with where each came from. `--show-rules-only` shows that
+  list without checking any values.
 - `optional` and `ci.allow_values` config keys. `validator()` and `inferrer()` on the facade, and `EnvAnalyzer::contract()`.
 - `illuminate/validation` as a dependency (Laravel apps already have it).
 - `data.baselined` in `env:audit --json`.

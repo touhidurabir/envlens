@@ -488,7 +488,7 @@ relative to the project, and `git diff <file>` unless the file is your own `.env
 ### `env:validate`
 
 ```bash
-php artisan env:validate [--file=] [--from-env] [--rules=] [--environment=] [--strict] [--init] [--dry-run] [--json] [--path=]
+php artisan env:validate [--file=] [--from-env] [--rules=] [--environment=] [--strict] [--init] [--dry-run] [--show-rules-only] [--json] [--path=]
 ```
 
 Checks real values. Where `env:audit --ci` asks whether the keys are declared, `env:validate` asks whether their values
@@ -513,6 +513,14 @@ certificate instead of a boolean, and a wrong guess shouldn't block a deploy. Pa
 ```
   Validating .env · 31 inferred · environment: local
 
++-----------+------------------+----------+----------------------------------------------------------------+
+| Key       | Rules            | Source   | Based on                                                       |
++-----------+------------------+----------+----------------------------------------------------------------+
+| APP_DEBUG | nullable|boolean | inferred | config default false is true/false (config/app.php:42)         |
+| APP_KEY   | required         | inferred | Laravel cannot encrypt without it (config/app.php:98)          |
+| DB_PORT   | nullable|integer | inferred | config default 3306 is a whole number (config/database.php:49) |
++-----------+------------------+----------+----------------------------------------------------------------+
+
    WARN  1 of 31 checks failed (exit 0)
 
 +---------+-----------+----------+-------------+-----------------------------------+
@@ -533,6 +541,13 @@ certificate instead of a boolean, and a wrong guess shouldn't block a deploy. Pa
 At a terminal with no rules file, it first asks whether to run the inferred checks or generate a rules file (`-n` skips
 the question). CI (`CI` or `GITHUB_ACTIONS` set to true), `--json`, production and runs with no terminal never ask; they
 run the inferred checks.
+
+**Every run lists the rules it checks before the result**, with where each one came from: the rules file, or the
+assumption behind an inferred check.
+
+**To see the rules without checking anything**, use `--show-rules-only`. It shows the same table and exits 0. It runs no
+rule, asks nothing, writes nothing and doesn't need a `.env`, though a file named with `--file=` must exist. `--environment=`
+picks whose rules to show, and a mistake in the rules file is still exit 2.
 
 #### Generating rules
 
@@ -556,6 +571,23 @@ run the inferred checks.
   No rule: no default and not declared .................................... 31
 ```
 
+Each key gets its own block, with the assumption above it:
+
+```php
+'rules' => [
+    // config default false is true/false (config/app.php:42)
+    'APP_DEBUG' => [
+        'nullable',
+        'boolean',
+    ],
+
+    // no default, and declared required; may be optional (config/filesystems.php:43)
+    // 'AWS_BUCKET' => [
+    //     'required',
+    // ],
+],
+```
+
 Guesses about required keys are written commented out and aren't checked, because many are truly optional; uncomment
 the ones that aren't.
 `-v` lists the keys that got no rule, and `--dry-run` shows the table and writes nothing. `--init` never overwrites an
@@ -571,21 +603,34 @@ command**: reviewing the file is what turns a guess into something that blocks.
 
 return [
     'rules' => [
-        'APP_URL'       => 'required|url',
-        'DB_PORT'       => 'integer|between:1,65535',
-        'MAIL_PASSWORD' => 'required_if:MAIL_MAILER,smtp',
+        'APP_URL' => [
+            'required',
+            'url',
+        ],
+        'DB_PORT' => [
+            'integer',
+            'between:1,65535',
+        ],
+        'MAIL_PASSWORD' => [
+            'required_if:MAIL_MAILER,smtp',
+        ],
     ],
     // Added to the rules above for that environment, not swapped for them.
     'environments' => [
-        'production' => ['APP_DEBUG' => 'declined', 'APP_URL' => 'starts_with:https://'],
+        'production' => [
+            'APP_DEBUG' => ['declined'],
+            'APP_URL' => ['starts_with:https://'],
+        ],
     ],
-    'messages' => ['APP_URL.starts_with' => 'Production must use https.'],
+    'messages' => [
+        'APP_URL.starts_with' => 'Production must use https.',
+    ],
     // Keep checking keys not listed here, from how config reads them. These only warn.
     'infer' => true,
 ];
 ```
 
-Any Laravel validation rule works, as a string or an array, including rule objects and closures. An explicit rule for a
+Any Laravel validation rule works, including rule objects and closures. `'required|url'` works as well as an array. An explicit rule for a
 key replaces the inferred one. The environment comes from `--environment=`, then `APP_ENV` in the values being checked,
 then the running app. Other details:
 
@@ -593,8 +638,8 @@ then the running app. Other details:
   reads the process environment instead, for values your platform or CI injects.
 - **All failures** are reported, not just the first.
 - **A check that looks at nothing doesn't pass.** With no rules file and no `env()` reads found in config, it exits 2.
-- **Secrets stay hidden.** For a sensitive key, only the failed rule's name is printed, in every output. Messages are
-  dropped, including your custom ones, because `:input` or a closure can repeat the value.
+- **Secrets stay hidden.** For a sensitive key, only rule names are printed, in every output, without parameters such as
+  the list in `in:`. Messages are dropped, including your custom ones, because `:input` or a closure can repeat the value.
 - **Mistakes in the file are usage errors** (exit 2) with one line of explanation: an unknown rule, even on a key that
   isn't set, the wrong shape, or a rule that throws.
 - **Production:** validating is read-only and allowed. Only `--init` writes.
@@ -617,8 +662,9 @@ catch people out with env values:
 - Env values are strings, so `min`, `max` and `between` measure length unless the rule also has `integer` or `numeric`.
   `between:1,65535` on its own accepts `70000`.
 
-With `--json`, `data` holds `values_from`, `rules_file`, `environment`, `strict`, `checked`, `failures` (each with `key`,
-`sensitive`, `source`, `rules`, `message`) and a `summary`.
+With `--json`, `data` holds `values_from`, `rules_file`, `environment`, `strict`, `rules` (each with `key`, `sensitive`,
+`rules`, `source`, `based_on`), `checked`, `failures` (each with `key`, `sensitive`, `source`, `rules`, `message`) and a
+`summary`. With `--show-rules-only`, it holds only `rules_file`, `environment` and `rules`.
 
 ## CI setup
 
@@ -682,6 +728,7 @@ env:
 | `--strict` | `env:validate` | Also fails on inferred checks. |
 | `--rules=` | `env:validate` | The rules file. Default `env.rules.php`. |
 | `--environment=` | `env:validate` | Whose rules to add. Default `APP_ENV` in the values. |
+| `--show-rules-only` | `env:validate` | Shows the rules that would run, and why, without checking any values. |
 
 Exit codes: `0` passed, `1` problems found, `2` the check couldn't run (a missing file, a bad option, a broken rules file
 or baseline, or no config found to scan). **`--ci` exits 2 when it finds no `env()` reads in config, whatever `--fail-on`
